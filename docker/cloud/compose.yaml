@@ -1,0 +1,42 @@
+name: viralautoclip
+
+# Run from this directory with: docker compose up -d --build
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      target: base
+    environment:
+      AUTOCLIP_HOME: /data
+    volumes:
+      - app-data:/data
+      - model-cache:/root/.cache
+    # Only the proxy can reach the app. Do not publish port 8000.
+    expose:
+      - '8000'
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2-alpine
+    environment:
+      CLIP_DOMAIN: ${CLIP_DOMAIN:?Set CLIP_DOMAIN in .env}
+      CLIP_USERNAME: ${CLIP_USERNAME:?Set CLIP_USERNAME in .env}
+      CLIP_PASSWORD_HASH: ${CLIP_PASSWORD_HASH:?Set CLIP_PASSWORD_HASH in .env}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  model-cache:
+  caddy-data:
+  caddy-config:
