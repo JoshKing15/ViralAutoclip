@@ -1,0 +1,15 @@
+{$CLIP_DOMAIN} {
+    # Protect the UI, settings, API, events, and generated media together.
+    basic_auth {
+        {$CLIP_USERNAME} {$CLIP_PASSWORD_HASH}
+    }
+
+    request_body {
+        max_size 2GB
+    }
+
+    reverse_proxy app:8000 {
+        # Deliver live job progress without proxy buffering.
+        flush_interval -1
+    }
+}
