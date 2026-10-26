@@ -25,7 +25,7 @@ if ($missing.Count -gt 0) {
     throw "Missing: $($missing -join ', '). Follow docs/LOCAL_WINDOWS.md, reopen PowerShell, and rerun."
 }
 Run-Checked 'py' @('-3.11', '-c', 'import sys; print(sys.version)')
-Run-Checked 'node' @('-e', 'if(Number(process.versions.node.split(".")[0])<20)process.exit(1)')
+Run-Checked 'node' @('-e', 'if(Number(process.versions.node.split(String.fromCharCode(46))[0])<20)process.exit(1)')
 $filters = (& ffmpeg -hide_banner -filters 2>&1 | Out-String)
 if ($LASTEXITCODE -ne 0 -or $filters -notmatch '\bass\b') { throw 'FFmpeg needs the ass subtitle filter. Install the full Gyan.FFmpeg build.' }
 
@@ -34,7 +34,7 @@ catch { throw 'Open the Ollama application first, then rerun this script.' }
 
 if (-not (Test-Path '.venv/Scripts/python.exe')) { Run-Checked 'py' @('-3.11', '-m', 'venv', '.venv') }
 $python = Join-Path (Get-Location) '.venv/Scripts/python.exe'
-Run-Checked $python @('-c', 'import sys; assert sys.version_info[:2] == (3,11), "Use a Python 3.11 virtual environment"')
+Run-Checked $python @('-c', 'import sys; sys.exit(0 if sys.version_info[:2] == (3,11) else 1)')
 Run-Checked $python @('-m', 'pip', 'install', '-e', '.')
 Push-Location frontend
 try {
@@ -57,6 +57,7 @@ s.clips.max_clips = 3
 config.save(s)
 print('Local Ollama configured; Whisper base; up to 3 clips. No paid provider selected.')
 '@
-Run-Checked $python @('-c', $configure, $Model)
+$configure | & $python - $Model
+if ($LASTEXITCODE -ne 0) { throw 'Could not save local AI configuration. See the error above.' }
 Run-Checked '.venv/Scripts/autoclip.exe' @('doctor')
-Write-Host 'Setup complete. Run: powershell -ExecutionPolicy Bypass -File .\scripts\Start-Local.ps1'
+Write-Host 'Setup complete. Run: .\scripts\Start-Local.ps1'
