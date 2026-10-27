@@ -54,6 +54,7 @@ class SourceOut(BaseModel):
 class YouTubeIngestIn(BaseModel):
     url: str
     cookies_from_browser: str | None = None
+    transcript_first: bool = False
 
 
 class JobSettingsIn(BaseModel):
@@ -153,6 +154,7 @@ class ClipOut(BaseModel):
     user_trimmed: bool
     caption_style: str = "bold_pop"
     ratio: str = "9:16"
+    media_offset_s: float = 0.0
     exports: list[ExportOut] = Field(default_factory=list)
 
     @classmethod

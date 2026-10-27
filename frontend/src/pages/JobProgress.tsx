@@ -7,10 +7,10 @@ import { useJobStream } from '../useJobStream'
 
 /** Stage order and labels, mirroring autoclip.pipeline.Stage. */
 const STAGES = [
-  { key: 'prepare', label: 'Prepare', note: 'Extracting audio and thumbnails' },
+  { key: 'prepare', label: 'Prepare', note: 'Checking captions or preparing audio' },
   { key: 'transcribe', label: 'Transcribe', note: 'Word-level timing' },
   { key: 'highlights', label: 'Highlights', note: 'Choosing the moments worth cutting' },
-  { key: 'reframe', label: 'Reframe', note: 'Tracking the speaker into vertical' },
+  { key: 'reframe', label: 'Reframe', note: 'Fetching selected video and tracking the speaker' },
   { key: 'captions', label: 'Captions', note: 'Building subtitle timing' },
   { key: 'export', label: 'Export', note: 'Rendering clips' },
 ] as const

@@ -25,7 +25,7 @@ from ..db import store
 from ..db.models import Clip, Export, Job, Source, new_id, utcnow
 from ..db.models import Transcript as TranscriptRow
 from ..providers import build_provider, detection_config
-from . import Stage, captions, export, ffmpeg, highlights, prepare, transcribe
+from . import Stage, captions, export, ffmpeg, highlights, prepare, transcribe, long_video
 from .prepare import Silence
 from .reframe import ReframeConfig, build_crop_path
 from .reframe.croppath import CropPath
@@ -115,7 +115,7 @@ class PipelineRunner:
     ) -> None:
         self.job = job
         self.source = source
-        self.settings = settings or load_settings()
+        self.settings = settings or (Settings.model_validate(job.settings) if job.settings else load_settings())
         self.on_progress = on_progress
         self._is_cancelled = is_cancelled or (lambda: False)
         self.workspace = JobWorkspace(job.id)
@@ -173,10 +173,16 @@ class PipelineRunner:
         store.update_job(self.job.id, status="running", started_at=utcnow(), error=None)
 
         try:
-            audio = self._stage_prepare()
-            transcript = self._stage_transcribe(audio)
-            silences = self._load_or_detect_silences(audio)
+            if long_video.is_remote(self.source):
+                transcript = self._remote_transcript()
+                silences = []
+            else:
+                audio = self._stage_prepare()
+                transcript = self._stage_transcribe(audio)
+                silences = self._load_or_detect_silences(audio)
             clips = await self._stage_highlights(transcript, silences)
+            if long_video.is_remote(self.source):
+                self._fetch_selected_sections(clips)
             crop_paths = self._stage_reframe(clips, transcript)
             self._stage_captions(clips, transcript)
             self._stage_export(clips, transcript, crop_paths)
@@ -184,6 +190,9 @@ class PipelineRunner:
             store.update_job(self.job.id, status="cancelled", finished_at=utcnow(), progress=0.0)
             raise
         except Exception as exc:
+            if self._is_cancelled():
+                store.update_job(self.job.id, status="cancelled", finished_at=utcnow(), progress=0.0)
+                raise JobCancelled("Job cancelled.") from exc
             log.exception("Job %s failed.", self.job.id)
             store.update_job(self.job.id, status="failed", error=str(exc), finished_at=utcnow())
             raise
@@ -192,6 +201,51 @@ class PipelineRunner:
         return clips
 
     # -- stages ------------------------------------------------------------
+
+    def _remote_transcript(self) -> Transcript:
+        self._check_cancelled()
+        settings = long_video.source_settings(self.source, self.settings.ingest)
+        self._emit(Stage.PREPARE, 0.0, "Checking YouTube captions (no full video download)")
+        transcript = None
+        if self.workspace.transcript.exists():
+            transcript = Transcript.load(self.workspace.transcript)
+        else:
+            transcript = long_video.fetch_captions(
+                self.source, self.workspace.root / "youtube-captions", settings,
+                self.settings.whisper.language, self._is_cancelled,
+            )
+        if transcript is not None:
+            self._finish_stage(Stage.PREPARE)
+            self._emit(Stage.TRANSCRIBE, 0.0, "Using cached transcript or YouTube word captions")
+            transcript.save(self.workspace.transcript)
+            store.upsert_transcript(TranscriptRow(
+                job_id=self.job.id, json_path=str(self.workspace.transcript),
+                language=transcript.language, model=transcript.model,
+                word_count=len(transcript.words), source=transcript.source,
+                has_diarization=transcript.has_diarization,
+            ))
+            self._finish_stage(Stage.TRANSCRIBE)
+            return transcript
+        self._emit(Stage.PREPARE, 0.0, "Captions unavailable: downloading audio only")
+        audio = long_video.download_audio(
+            self.source, self.workspace.root / "remote-audio", settings,
+            self._is_cancelled, lambda f: self._emit(Stage.PREPARE, f * 0.7, "Downloading audio only"),
+        )
+        self._check_cancelled()
+        if not self.workspace.audio.exists():
+            self._emit(Stage.PREPARE, 0.7, "Preparing downloaded audio for transcription")
+            prepare.extract_audio(audio, self.workspace.audio, duration_s=self.source.duration_s,
+                                  on_progress=lambda f: self._emit(Stage.PREPARE, 0.7 + f * 0.3, "Preparing audio"))
+        self._finish_stage(Stage.PREPARE)
+        return self._stage_transcribe(self.workspace.audio)
+
+    def _fetch_selected_sections(self, clips: list[Clip]) -> None:
+        settings = long_video.source_settings(self.source, self.settings.ingest)
+        for index, clip in enumerate(clips):
+            self._check_cancelled()
+            self._emit(Stage.REFRAME, 0.0,
+                       f"Downloading selected video {index + 1}/{len(clips)} (no full video)")
+            long_video.download_section(self.source, clip, settings, self._is_cancelled)
 
     def _stage_prepare(self) -> Path:
         stage = Stage.PREPARE
@@ -291,7 +345,10 @@ class PipelineRunner:
             config,
             job_id=self.job.id,
             silences=silences,
-            on_progress=self._stage_progress(stage),
+            on_progress=lambda fraction: self._emit(stage, fraction,
+                f"Analysing transcript sections: {round(fraction * 100)}%"),
+            cache_dir=self.workspace.root / "highlight-windows",
+            cancelled=self._is_cancelled,
         )
 
         store.replace_clips(self.job.id, clips)
@@ -301,8 +358,6 @@ class PipelineRunner:
     def _stage_reframe(self, clips: list[Clip], transcript: Transcript) -> dict[str, CropPath]:
         stage = Stage.REFRAME
         self._check_cancelled()
-        source_path = Path(self.source.path)
-
         crop_paths: dict[str, CropPath] = {}
 
         if not self.source.has_video:
@@ -320,15 +375,16 @@ class PipelineRunner:
 
         for index, clip in enumerate(clips):
             self._check_cancelled()
+            media = long_video.clip_media(self.source, clip)
             cached = self.workspace.crop_path(clip.id)
             if cached.exists():
                 crop_paths[clip.id] = CropPath.load(cached)
             else:
                 crop_paths[clip.id] = build_crop_path(
-                    source_path,
-                    start_s=clip.start_s,
-                    end_s=clip.end_s,
-                    transcript=transcript,
+                    media.path,
+                    start_s=clip.start_s - media.offset,
+                    end_s=clip.end_s - media.offset,
+                    transcript=long_video.local_transcript(transcript, media.offset),
                     config=config,
                 )
                 crop_paths[clip.id].save(cached)
@@ -358,7 +414,6 @@ class PipelineRunner:
 
         style = captions.get_style(self.settings.export.caption_style)
         ratio = self.settings.export.ratio
-        source_path = Path(self.source.path)
         destination_dir = paths.exports_dir() / self.job.id
         destination_dir.mkdir(parents=True, exist_ok=True)
 
@@ -366,16 +421,17 @@ class PipelineRunner:
             self._check_cancelled()
 
             crop_path = crop_paths.get(clip.id) or self._fallback_crop_path(clip, ratio)
-            words = transcript.slice(clip.start_word, clip.end_word)
+            media = long_video.clip_media(self.source, clip)
+            words = long_video.local_transcript(transcript, media.offset).slice(clip.start_word, clip.end_word)
             destination = destination_dir / export.output_filename(
                 clip.title or f"clip-{clip.rank}", ratio
             )
 
             request = export.ExportRequest(
-                source=source_path,
+                source=media.path,
                 destination=destination,
-                start_s=clip.start_s,
-                end_s=clip.end_s,
+                start_s=clip.start_s - media.offset,
+                end_s=clip.end_s - media.offset,
                 crop_path=crop_path,
                 words=words,
                 style=style,
@@ -412,7 +468,7 @@ class PipelineRunner:
         from .reframe.croppath import centre_crop
 
         width, height = export.ratio_dimensions(ratio)
-        info = ffmpeg.probe(Path(self.source.path))
+        info = ffmpeg.probe(long_video.clip_media(self.source, clip).path)
         return centre_crop(
             info.width or width,
             info.height or height,

@@ -67,6 +67,7 @@ export interface Clip {
   user_trimmed: boolean
   caption_style: string
   ratio: string
+  media_offset_s: number
   exports: ExportRecord[]
 }
 
@@ -229,10 +230,10 @@ export const api = {
 
   listSources: () => request<Source[]>('/api/sources'),
 
-  ingestYouTube: (url: string, cookiesFromBrowser?: string) =>
+  ingestYouTube: (url: string, cookiesFromBrowser?: string, transcriptFirst = false) =>
     request<Source>('/api/sources/youtube', {
       method: 'POST',
-      body: JSON.stringify({ url, cookies_from_browser: cookiesFromBrowser || null }),
+      body: JSON.stringify({ url, cookies_from_browser: cookiesFromBrowser || null, transcript_first: transcriptFirst }),
     }),
 
   uploadSource: (file: File) => {
@@ -295,6 +296,7 @@ export const api = {
   deleteSecret: (key: string) =>
     request<void>(`/api/settings/secrets/${key}`, { method: 'DELETE' }),
 
+  clipMediaUrl: (clipId: string) => `/api/clips/${clipId}/media`,
   mediaUrl: (jobId: string) => `/api/jobs/${jobId}/media`,
 }
 

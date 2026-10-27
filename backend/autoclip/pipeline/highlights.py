@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import hashlib
+import json
+from pathlib import Path
 from collections.abc import Callable
 
 from ..db.models import Clip, new_id
-from ..providers import ClipCandidate, DetectionConfig, LLMProvider, TranscriptWindow
+from ..providers import ClipCandidate, ClipCandidates, DetectionConfig, LLMProvider, TranscriptWindow
 from . import boundaries
 from .prepare import Silence
 from .transcript import Transcript
@@ -127,6 +130,8 @@ async def detect(
     job_id: str,
     silences: list[Silence] | None = None,
     on_progress: Callable[[float], None] | None = None,
+    cache_dir: Path | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> list[Clip]:
     """Run detection across the whole transcript and return ranked clips."""
     # Smaller local prompts reduce inference time and context memory pressure.
@@ -143,13 +148,29 @@ async def detect(
     concurrency = LOCAL_CONCURRENCY if provider.name == "ollama" else HOSTED_CONCURRENCY
     semaphore = asyncio.Semaphore(concurrency)
     completed = 0
+    failures: list[str] = []
     lock = asyncio.Lock()
 
     async def run_window(window: TranscriptWindow) -> list[ClipCandidate]:
         nonlocal completed
         async with semaphore:
+            if cancelled and cancelled():
+                raise HighlightError("Highlight selection cancelled.")
+            fingerprint = hashlib.sha256(
+                json.dumps([provider.name, provider.model, provider.base_url, vars(config), window.text],
+                           sort_keys=True).encode()
+            ).hexdigest()
+            checkpoint = cache_dir / f"{fingerprint}.json" if cache_dir else None
             try:
-                result = await provider.detect_highlights(window, config)
+                if checkpoint and checkpoint.exists():
+                    result = ClipCandidates.model_validate_json(checkpoint.read_text(encoding="utf-8"))
+                else:
+                    result = await provider.detect_highlights(window, config)
+                    if checkpoint:
+                        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                        temp = checkpoint.with_suffix(".tmp")
+                        temp.write_text(result.model_dump_json(), encoding="utf-8")
+                        temp.replace(checkpoint)
                 candidates = result.clips
             except Exception as exc:
                 # One bad window shouldn't lose the whole video's other windows.
@@ -159,6 +180,7 @@ async def detect(
                     window.last_word,
                     exc,
                 )
+                failures.append(str(exc))
                 candidates = []
             async with lock:
                 completed += 1
@@ -169,6 +191,11 @@ async def detect(
     results = await asyncio.gather(*(run_window(w) for w in windows))
     candidates = [c for group in results for c in group]
 
+    if not candidates and failures:
+        raise HighlightError(
+            f"Highlight analysis failed for {len(failures)}/{len(windows)} sections. "
+            f"Last error: {failures[-1]}. Retry reuses completed section results."
+        )
     if not candidates:
         raise HighlightError(
             "No clips were found. This can mean the video genuinely has no "

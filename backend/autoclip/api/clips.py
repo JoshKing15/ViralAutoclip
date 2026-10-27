@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from dataclasses import replace
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -13,6 +14,7 @@ from .. import paths
 from ..config import load as load_settings
 from ..db import store
 from ..db.models import Export, new_id
+from ..pipeline import long_video, ingest
 from ..pipeline import captions as captions_module
 from ..pipeline import export as export_module
 from ..pipeline.reframe.croppath import CropPath, centre_crop
@@ -36,7 +38,15 @@ router = APIRouter(prefix="/api", tags=["clips"])
 def _clip_out(clip) -> ClipOut:
     edit = store.get_clip_edit(clip.id)
     exports = store.list_exports(clip.id)
-    return ClipOut.of(clip, edit=edit, exports=exports)
+    result = ClipOut.of(clip, edit=edit, exports=exports)
+    job = store.get_job(clip.job_id)
+    source = store.get_source(job.source_id) if job else None
+    if source and long_video.is_remote(source):
+        try:
+            result.media_offset_s = long_video.clip_media(source, clip).offset
+        except ingest.IngestError:
+            pass
+    return result
 
 
 async def list_clips_for_job(job_id: str) -> list[ClipOut]:
@@ -117,6 +127,13 @@ async def patch_clip(clip_id: str, payload: ClipPatchIn) -> ClipOut:
     start_word = end_word = None
 
     if trimmed:
+        job = await asyncio.to_thread(store.get_job, clip.job_id)
+        source = await asyncio.to_thread(store.get_source, job.source_id) if job else None
+        if source and long_video.is_remote(source):
+            try:
+                long_video.clip_media(source, replace(clip, start_s=start_s, end_s=end_s))
+            except ingest.IngestError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         transcript = await asyncio.to_thread(_load_transcript, clip.job_id)
         first, last = transcript.indices_in_range(start_s, end_s)
         start_word, end_word = first, max(first, last - 1)
@@ -133,6 +150,8 @@ async def patch_clip(clip_id: str, payload: ClipPatchIn) -> ClipOut:
         user_trimmed=True if trimmed else None,
     )
 
+    if trimmed:
+        JobWorkspace(clip.job_id).crop_path(clip.id).unlink(missing_ok=True)
     updated = await asyncio.to_thread(store.get_clip, clip_id)
     return await asyncio.to_thread(_clip_out, updated)
 
@@ -193,6 +212,11 @@ async def export_clip(clip_id: str, payload: ExportRequestIn) -> ExportOut:
     settings = load_settings()
     settings.export.write_srt = payload.write_srt
 
+    try:
+        media = long_video.clip_media(source, clip)
+    except ingest.IngestError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    words = [replace(w, start=w.start - media.offset, end=w.end - media.offset) for w in words]
     workspace = JobWorkspace(clip.job_id)
     crop_path = await asyncio.to_thread(_crop_path_for, workspace, clip, source, payload.ratio)
 
@@ -203,10 +227,10 @@ async def export_clip(clip_id: str, payload: ExportRequestIn) -> ExportOut:
     )
 
     request = export_module.ExportRequest(
-        source=Path(source.path),
+        source=media.path,
         destination=destination,
-        start_s=clip.start_s,
-        end_s=clip.end_s,
+        start_s=clip.start_s - media.offset,
+        end_s=clip.end_s - media.offset,
         crop_path=crop_path,
         words=words,
         style=style,
@@ -250,6 +274,20 @@ async def download_export(export_id: str) -> FileResponse:
     return FileResponse(path, media_type="video/mp4", filename=path.name)
 
 
+@router.get("/clips/{clip_id}/media")
+async def selected_clip_media(clip_id: str) -> FileResponse:
+    clip = await asyncio.to_thread(store.get_clip, clip_id)
+    job = await asyncio.to_thread(store.get_job, clip.job_id) if clip else None
+    source = await asyncio.to_thread(store.get_source, job.source_id) if job else None
+    if not clip or not source:
+        raise HTTPException(status_code=404, detail="Clip source not found.")
+    try:
+        media = long_video.clip_media(source, clip)
+    except ingest.IngestError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(media.path)
+
+
 @router.get("/jobs/{job_id}/media")
 async def job_media(job_id: str) -> FileResponse:
     """Serve the source video, so the review player can scrub the original.
@@ -265,6 +303,8 @@ async def job_media(job_id: str) -> FileResponse:
     if source is None or not Path(source.path).exists():
         raise HTTPException(status_code=404, detail="Source media not found.")
 
+    if long_video.is_remote(source):
+        raise HTTPException(status_code=409, detail="Long podcast mode stores per-clip media, not a full video.")
     return FileResponse(Path(source.path))
 
 
@@ -317,9 +357,14 @@ def _crop_path_for(workspace: JobWorkspace, clip, source, ratio: str) -> CropPat
         return CropPath.load(cached)
 
     aspect = {"9:16": (9, 16), "1:1": (1, 1), "16:9": (16, 9)}[ratio]
+    width, height = source.width or 1920, source.height or 1080
+    if long_video.is_remote(source):
+        from ..pipeline import ffmpeg
+        info = ffmpeg.probe(long_video.clip_media(source, clip).path)
+        width, height = info.width or width, info.height or height
     return centre_crop(
-        source.width or 1920,
-        source.height or 1080,
+        width,
+        height,
         clip.end_s - clip.start_s,
         aspect_w=aspect[0],
         aspect_h=aspect[1],

@@ -80,6 +80,7 @@ export function Review() {
     try {
       patchClip(await api.patchClip(selected.id, { start_s: start, end_s: end }))
       setWords(await api.getClipWords(selected.id))
+      setCropPath(null)
     } catch (err) {
       setError(err as Error)
     }
@@ -209,10 +210,10 @@ export function Review() {
             {selected && jobId && (
               <>
                 <ClipPlayer
-                  src={api.mediaUrl(jobId)}
-                  startS={selected.start_s}
-                  endS={selected.end_s}
-                  words={words}
+                  src={api.clipMediaUrl(selected.id)}
+                  startS={selected.start_s - (selected.media_offset_s || 0)}
+                  endS={selected.end_s - (selected.media_offset_s || 0)}
+                  words={words.map((w) => ({ ...w, start: w.start - (selected.media_offset_s || 0), end: w.end - (selected.media_offset_s || 0) }))}
                   style={activeStyle}
                   ratio={selected.ratio}
                   cropPath={cropPath}
