@@ -24,6 +24,10 @@ def _apply_overrides(settings, overrides: JobSettingsIn):
     """Layer per-job overrides on top of saved settings."""
     merged = settings.model_copy(deep=True)
 
+    if overrides.topic is not None:
+        merged.clips.topic = overrides.topic.strip()
+    if overrides.framing is not None:
+        merged.export.framing = overrides.framing
     if overrides.provider:
         merged.active_provider = overrides.provider
     if overrides.whisper_model:

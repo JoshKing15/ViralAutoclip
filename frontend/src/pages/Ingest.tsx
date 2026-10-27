@@ -14,11 +14,12 @@ import { ErrorNote } from '../components/ErrorNote'
 export function Ingest() {
   const navigate = useNavigate()
   const [url, setUrl] = useState('')
+  const [transcriptFirst, setTranscriptFirst] = useState(true)
   const [busy, setBusy] = useState<'url' | 'file' | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const [providers, setProviders] = useState<ProviderStatus[]>([])
-  const [overrides, setOverrides] = useState<JobSettingsOverrides>({})
+  const [overrides, setOverrides] = useState<JobSettingsOverrides>({ max_clips: 3, min_duration_s: 30, max_duration_s: 60, diarization: false })
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -48,7 +49,7 @@ export function Ingest() {
   const submitUrl = (event: React.FormEvent) => {
     event.preventDefault()
     if (!url.trim()) return
-    void start('url', () => api.ingestYouTube(url.trim()))
+    void start('url', () => api.ingestYouTube(url.trim(), undefined, transcriptFirst))
   }
 
   const submitFile = (file: File) => void start('file', () => api.uploadSource(file))
@@ -91,14 +92,32 @@ export function Ingest() {
                 className="btn btn-primary shrink-0"
                 disabled={busy !== null || !url.trim()}
               >
-                {busy === 'url' ? 'Fetching…' : 'Start'}
+                {busy === 'url' ? (transcriptFirst ? 'Checking link…' : 'Fetching…') : 'Start'}
               </button>
             </div>
+            <label className="mt-5 flex items-center gap-3 text-sm text-ink-200">
+              <input type="checkbox" checked={transcriptFirst} disabled={busy !== null}
+                onChange={(e) => setTranscriptFirst(e.target.checked)} />
+              Long podcast mode — analyse captions or audio first
+            </label>
+            <p className="mt-2 text-xs text-ink-500">
+              Downloads video only for selected moments. If captions are unavailable,
+              audio transcription still takes time. Uncheck to download the full video.
+            </p>
           </form>
 
           <p className="mt-3 text-xs leading-relaxed text-ink-500">
             Only download video you own or have the rights to process.
           </p>
+
+          <label className="mt-6 block">
+            <span className="eyebrow">Topics to look for (optional)</span>
+            <textarea className="field mt-2 text-sm" rows={2} maxLength={500}
+              placeholder="Relationships, money, dating expectations…"
+              value={overrides.topic ?? ''} disabled={busy !== null}
+              onChange={(e) => setOverrides((current) => ({ ...current, topic: e.target.value }))} />
+            <span className="mt-1 block text-xs text-ink-500">Leave blank for general highlights. Topic selection is AI-assisted; review the results.</span>
+          </label>
 
           <AdvancedOptions
             open={advancedOpen}
@@ -267,11 +286,19 @@ function AdvancedOptions({
                 onChange={(v) => set('max_duration_s', v)}
               />
             </div>
+            <Selector label="Framing" value={overrides.framing ?? 'auto'}
+              onChange={(value) => set('framing', value)} options={[
+                { value: 'auto', label: 'Auto — track the speaker' },
+                { value: 'centre', label: 'Centre crop — fixed framing' },
+                { value: 'fit', label: 'Full picture — blurred background' },
+                { value: 'split', label: 'Two panels — left / right stacked' },
+              ]} />
+            <p className="text-xs text-ink-500">Two panels suits side-by-side guests. Multiple-speaker labels below require optional WhisperX setup.</p>
             <label className="flex items-center gap-3 text-sm text-ink-200 sm:col-span-2">
               <input
                 type="checkbox"
                 checked={overrides.diarization ?? false}
-                onChange={(e) => set('diarization', e.target.checked || undefined)}
+                onChange={(e) => set('diarization', e.target.checked)}
                 className="size-4 accent-sodium-500"
               />
               Multiple speakers — label who is talking, and cut to them

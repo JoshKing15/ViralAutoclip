@@ -115,6 +115,15 @@ def build_video_filtergraph(
             )
             parts.append(prefix)
 
+        if segment.split:
+            # Left and right source halves are stacked; this is a manual two-person layout.
+            parts.extend([
+                f"{source_label}split=2[sl{index}][sr{index}]",
+                f"[sl{index}]crop=trunc(iw/4)*2:ih:0:0,scale={out_w}:{out_h//2}:force_original_aspect_ratio=increase,crop={out_w}:{out_h//2},setsar=1[tl{index}]",
+                f"[sr{index}]crop=trunc(iw/4)*2:ih:trunc(iw/4)*2:0,scale={out_w}:{out_h//2}:force_original_aspect_ratio=increase,crop={out_w}:{out_h//2},setsar=1[br{index}]",
+                f"[tl{index}][br{index}]vstack=inputs=2,format=yuv420p[{label}]",
+            ])
+            continue
         if segment.fit:
             parts.extend(_fit_chain(source_label, index, out_w, out_h))
             continue

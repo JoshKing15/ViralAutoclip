@@ -120,6 +120,9 @@ export function ClipPlayer({
   const elapsed = Math.max(0, time - startS)
   const duration = Math.max(0.01, endS - startS)
 
+  const segment = cropPath?.segments.find((s) => elapsed >= s.start_s && elapsed < s.end_s)
+    ?? cropPath?.segments[cropPath.segments.length - 1]
+  const layout = segment?.split ? 'split' : segment?.fit ? 'fit' : null
   const cropStyle = cropWindowStyle(cropPath, elapsed)
   const [aspectW, aspectH] = ASPECTS[ratio] ?? ASPECTS['9:16']
   // Height alone can't bound the box: with width:100% and an aspect-ratio, a
@@ -147,7 +150,7 @@ export function ClipPlayer({
         <video
           ref={video}
           src={src}
-          className={cropStyle ? 'absolute max-w-none' : 'size-full object-cover'}
+          className={layout ? 'size-full opacity-0' : cropStyle ? 'absolute max-w-none' : 'size-full object-cover'}
           style={cropStyle ?? undefined}
           onTimeUpdate={onTimeUpdate}
           preload="auto"
@@ -155,6 +158,7 @@ export function ClipPlayer({
           controls={nativeControls}
         />
 
+        {layout && <LayoutCanvas video={video} layout={layout} ratio={ratio} src={src} />}
         <CaptionOverlay words={words} time={time} style={style} />
 
         {!playing && (
@@ -529,4 +533,49 @@ function groupWords(words: Word[], maxWords: number): Word[][] {
   }
   if (current.length > 0) groups.push(current)
   return groups
+}
+
+
+/** Draw explicit layouts from the same playing video, avoiding a second audio/video clock. */
+function LayoutCanvas({ video, layout, ratio, src }: {
+  video: React.RefObject<HTMLVideoElement>; layout: 'split' | 'fit'; ratio: string; src: string
+}) {
+  const canvas = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    let frame = 0
+    const draw = () => {
+      const element = video.current
+      const surface = canvas.current
+      const context = surface?.getContext('2d')
+      if (element && surface && context && element.readyState >= 2 && element.videoWidth > 0) {
+        const [a, b] = ASPECTS[ratio] ?? ASPECTS['9:16']
+        const width = 540, height = Math.round(540 * b / a)
+        if (surface.width !== width || surface.height !== height) { surface.width = width; surface.height = height }
+        const sw = element.videoWidth, sh = element.videoHeight
+        const cover = (sx: number, sy: number, cw: number, ch: number, dy: number, targetH: number) => {
+          const scale = Math.max(width / cw, targetH / ch)
+          const takeW = width / scale, takeH = targetH / scale
+          context.drawImage(element, sx + (cw - takeW) / 2, sy + (ch - takeH) / 2,
+            takeW, takeH, 0, dy, width, targetH)
+        }
+        context.clearRect(0, 0, width, height)
+        if (layout === 'split') {
+          const half = Math.floor(sw / 4) * 2
+          cover(0, 0, half, sh, 0, height / 2)
+          cover(half, 0, half, sh, height / 2, height / 2)
+        } else {
+          context.filter = 'blur(18px)'
+          cover(0, 0, sw, sh, 0, height)
+          context.filter = 'none'
+          const scale = Math.min(width / sw, height / sh)
+          const w = sw * scale, h = sh * scale
+          context.drawImage(element, (width - w) / 2, (height - h) / 2, w, h)
+        }
+      }
+      frame = requestAnimationFrame(draw)
+    }
+    frame = requestAnimationFrame(draw)
+    return () => cancelAnimationFrame(frame)
+  }, [video, layout, ratio, src])
+  return <canvas ref={canvas} aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" />
 }

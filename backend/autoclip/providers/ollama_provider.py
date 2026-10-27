@@ -64,6 +64,10 @@ class OllamaProvider(LLMProvider):
             "options": {"temperature": config.temperature},
         }
 
+        # Qwen3 supports disabling reasoning; leave other model families unchanged.
+        if self.model.split(":")[0].split("/")[-1] == "qwen3":
+            payload["think"] = False
+
         try:
             async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
                 response = await client.post(f"{self.url}/api/generate", json=payload)

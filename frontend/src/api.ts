@@ -35,6 +35,7 @@ export interface Job {
   updated_at: string
   started_at: string | null
   finished_at: string | null
+  progress_message?: string
   source: Source | null
 }
 
@@ -67,6 +68,8 @@ export interface Clip {
   user_trimmed: boolean
   caption_style: string
   ratio: string
+  framing: string
+  media_offset_s: number
   exports: ExportRecord[]
 }
 
@@ -92,6 +95,7 @@ export interface CropSegment {
   strategy: 'track' | 'wide' | 'general'
   zoom: number
   fit: boolean
+  split?: boolean
 }
 
 /** Mirrors autoclip.pipeline.reframe.croppath.CropPath. */
@@ -165,6 +169,8 @@ export interface SystemStatus {
 }
 
 export interface JobSettingsOverrides {
+  topic?: string
+  framing?: string
   provider?: string
   whisper_model?: string
   language?: string
@@ -229,10 +235,10 @@ export const api = {
 
   listSources: () => request<Source[]>('/api/sources'),
 
-  ingestYouTube: (url: string, cookiesFromBrowser?: string) =>
+  ingestYouTube: (url: string, cookiesFromBrowser?: string, transcriptFirst = false) =>
     request<Source>('/api/sources/youtube', {
       method: 'POST',
-      body: JSON.stringify({ url, cookies_from_browser: cookiesFromBrowser || null }),
+      body: JSON.stringify({ url, cookies_from_browser: cookiesFromBrowser || null, transcript_first: transcriptFirst }),
     }),
 
   uploadSource: (file: File) => {
@@ -295,6 +301,12 @@ export const api = {
   deleteSecret: (key: string) =>
     request<void>(`/api/settings/secrets/${key}`, { method: 'DELETE' }),
 
+  setFraming: (clipId: string, mode: string, ratio: string) =>
+    request<Clip>(`/api/clips/${clipId}/framing`, { method: 'PATCH', body: JSON.stringify({ mode, ratio }) }),
+  getPosting: (clipId: string) => request<PostingDraft>(`/api/clips/${clipId}/posting`),
+  generatePosting: (clipId: string) => request<PostingDraft>(`/api/clips/${clipId}/posting`, { method: 'POST' }),
+  savePosting: (clipId: string, draft: PostingDraft) => request<PostingDraft>(`/api/clips/${clipId}/posting`, { method: 'PUT', body: JSON.stringify(draft) }),
+  clipMediaUrl: (clipId: string) => `/api/clips/${clipId}/media`,
   mediaUrl: (jobId: string) => `/api/jobs/${jobId}/media`,
 }
 
@@ -328,4 +340,13 @@ export function formatBytes(bytes: number): string {
     unit += 1
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
+}
+
+export interface PostingDraft {
+  youtube_title: string
+  description: string
+  facebook_caption: string
+  hashtags: string[]
+  commentary_points: string[]
+  source_credit: string
 }
