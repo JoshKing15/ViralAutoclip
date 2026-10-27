@@ -25,7 +25,7 @@ from ..db import store
 from ..db.models import Clip, Export, Job, Source, new_id, utcnow
 from ..db.models import Transcript as TranscriptRow
 from ..providers import build_provider, detection_config
-from . import Stage, captions, export, ffmpeg, highlights, prepare, transcribe, long_video
+from . import Stage, captions, export, ffmpeg, highlights, prepare, transcribe, long_video, framing
 from .prepare import Silence
 from .reframe import ReframeConfig, build_crop_path
 from .reframe.croppath import CropPath
@@ -139,6 +139,10 @@ class PipelineRunner:
             overall = self._completed_weight + STAGE_WEIGHTS[stage] * stage_progress
         overall = min(1.0, overall)
         store.update_job(self.job.id, current_stage=stage.value, progress=round(overall, 4))
+        snapshot = self.workspace.root / "progress.json"
+        temp = snapshot.with_suffix(".tmp")
+        temp.write_text(json.dumps({"message": message or stage.label}), encoding="utf-8")
+        temp.replace(snapshot)
         if self.on_progress:
             self.on_progress(
                 ProgressEvent(
@@ -229,7 +233,8 @@ class PipelineRunner:
         self._emit(Stage.PREPARE, 0.0, "Captions unavailable: downloading audio only")
         audio = long_video.download_audio(
             self.source, self.workspace.root / "remote-audio", settings,
-            self._is_cancelled, lambda f: self._emit(Stage.PREPARE, f * 0.7, "Downloading audio only"),
+            self._is_cancelled, None,
+            lambda message: self._emit(Stage.PREPARE, 0.0, "Audio only — " + message),
         )
         self._check_cancelled()
         if not self.workspace.audio.exists():
@@ -245,7 +250,10 @@ class PipelineRunner:
             self._check_cancelled()
             self._emit(Stage.REFRAME, 0.0,
                        f"Downloading selected video {index + 1}/{len(clips)} (no full video)")
-            long_video.download_section(self.source, clip, settings, self._is_cancelled)
+            long_video.download_section(
+                self.source, clip, settings, self._is_cancelled, None,
+                lambda message: self._emit(Stage.REFRAME, 0.0,
+                    f"Video {index + 1}/{len(clips)} — {message}"))
 
     def _stage_prepare(self) -> Path:
         stage = Stage.PREPARE
@@ -349,6 +357,8 @@ class PipelineRunner:
                 f"Analysing transcript sections: {round(fraction * 100)}%"),
             cache_dir=self.workspace.root / "highlight-windows",
             cancelled=self._is_cancelled,
+            on_window=lambda done, total, cached: self._emit(stage, done / total,
+                f"Analysed section {done}/{total}" + (" (reused)" if cached else "")),
         )
 
         store.replace_clips(self.job.id, clips)
@@ -380,14 +390,16 @@ class PipelineRunner:
             if cached.exists():
                 crop_paths[clip.id] = CropPath.load(cached)
             else:
-                crop_paths[clip.id] = build_crop_path(
-                    media.path,
-                    start_s=clip.start_s - media.offset,
-                    end_s=clip.end_s - media.offset,
-                    transcript=long_video.local_transcript(transcript, media.offset),
-                    config=config,
-                )
-                crop_paths[clip.id].save(cached)
+                mode = self.settings.export.framing
+                if mode == "auto":
+                    crop_paths[clip.id] = build_crop_path(
+                        media.path, start_s=clip.start_s - media.offset, end_s=clip.end_s - media.offset,
+                        transcript=long_video.local_transcript(transcript, media.offset), config=config)
+                else:
+                    crop_paths[clip.id] = framing.create(
+                        media.path, clip.start_s - media.offset, clip.end_s - media.offset,
+                        long_video.local_transcript(transcript, media.offset), self.settings.export.ratio, mode)
+                framing.save(crop_paths[clip.id], cached, mode, self.settings.export.ratio)
 
             self._emit(stage, (index + 1) / len(clips), f"Reframing clip {index + 1}")
 

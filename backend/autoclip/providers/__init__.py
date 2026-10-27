@@ -86,6 +86,7 @@ def detection_config(settings: Settings | None = None) -> DetectionConfig:
 
     settings = settings if settings is not None else load()
     return DetectionConfig(
+        topic=settings.clips.topic,
         min_duration_s=settings.clips.min_duration_s,
         max_duration_s=settings.clips.max_duration_s,
         max_clips=settings.clips.max_clips,

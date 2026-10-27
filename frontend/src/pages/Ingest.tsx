@@ -19,7 +19,7 @@ export function Ingest() {
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const [providers, setProviders] = useState<ProviderStatus[]>([])
-  const [overrides, setOverrides] = useState<JobSettingsOverrides>({})
+  const [overrides, setOverrides] = useState<JobSettingsOverrides>({ max_clips: 3, min_duration_s: 30, max_duration_s: 60, diarization: false })
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -109,6 +109,15 @@ export function Ingest() {
           <p className="mt-3 text-xs leading-relaxed text-ink-500">
             Only download video you own or have the rights to process.
           </p>
+
+          <label className="mt-6 block">
+            <span className="eyebrow">Topics to look for (optional)</span>
+            <textarea className="field mt-2 text-sm" rows={2} maxLength={500}
+              placeholder="Relationships, money, dating expectations…"
+              value={overrides.topic ?? ''} disabled={busy !== null}
+              onChange={(e) => setOverrides((current) => ({ ...current, topic: e.target.value }))} />
+            <span className="mt-1 block text-xs text-ink-500">Leave blank for general highlights. Topic selection is AI-assisted; review the results.</span>
+          </label>
 
           <AdvancedOptions
             open={advancedOpen}
@@ -277,11 +286,19 @@ function AdvancedOptions({
                 onChange={(v) => set('max_duration_s', v)}
               />
             </div>
+            <Selector label="Framing" value={overrides.framing ?? 'auto'}
+              onChange={(value) => set('framing', value)} options={[
+                { value: 'auto', label: 'Auto — track the speaker' },
+                { value: 'centre', label: 'Centre crop — fixed framing' },
+                { value: 'fit', label: 'Full picture — blurred background' },
+                { value: 'split', label: 'Two panels — left / right stacked' },
+              ]} />
+            <p className="text-xs text-ink-500">Two panels suits side-by-side guests. Multiple-speaker labels below require optional WhisperX setup.</p>
             <label className="flex items-center gap-3 text-sm text-ink-200 sm:col-span-2">
               <input
                 type="checkbox"
                 checked={overrides.diarization ?? false}
-                onChange={(e) => set('diarization', e.target.checked || undefined)}
+                onChange={(e) => set('diarization', e.target.checked)}
                 className="size-4 accent-sodium-500"
               />
               Multiple speakers — label who is talking, and cut to them

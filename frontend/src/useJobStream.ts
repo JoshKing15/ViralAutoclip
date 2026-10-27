@@ -53,6 +53,10 @@ export function useJobStream(jobId: string | undefined) {
       if (['done', 'failed', 'cancelled'].includes(data.status)) close()
     })
 
+    source.addEventListener('started', () => {
+      setJob((current) => current ? { ...current, status: 'running', started_at: new Date().toISOString() } : current)
+    })
+
     source.addEventListener('progress', (event) => {
       const data = JSON.parse((event as MessageEvent).data)
       setProgress({
@@ -63,7 +67,7 @@ export function useJobStream(jobId: string | undefined) {
       })
       setJob((current) =>
         current
-          ? { ...current, status: 'running', current_stage: data.stage, progress: data.overall }
+          ? { ...current, status: 'running', current_stage: data.stage, progress: data.overall, progress_message: data.message }
           : current,
       )
     })

@@ -60,6 +60,8 @@ class YouTubeIngestIn(BaseModel):
 class JobSettingsIn(BaseModel):
     """Per-job overrides. Anything omitted falls back to saved settings."""
 
+    topic: str | None = Field(default=None, max_length=500)
+    framing: Literal["auto", "centre", "fit", "split"] | None = None
     provider: str | None = None
     whisper_model: str | None = None
     language: str | None = None
@@ -88,11 +90,20 @@ class JobOut(BaseModel):
     updated_at: str
     started_at: str | None = None
     finished_at: str | None = None
+    progress_message: str = ""
     source: SourceOut | None = None
 
     @classmethod
     def of(cls, job: models.Job, source: models.Source | None = None) -> JobOut:
+        from ..pipeline.runner import JobWorkspace
+        import json
+        message = ""
+        try:
+            message = json.loads((JobWorkspace(job.id).root / "progress.json").read_text(encoding="utf-8")).get("message", "")
+        except (OSError, ValueError):
+            pass
         return cls(
+            progress_message=message,
             id=job.id,
             source_id=job.source_id,
             status=job.status,
@@ -154,6 +165,7 @@ class ClipOut(BaseModel):
     user_trimmed: bool
     caption_style: str = "bold_pop"
     ratio: str = "9:16"
+    framing: str = "auto"
     media_offset_s: float = 0.0
     exports: list[ExportOut] = Field(default_factory=list)
 
@@ -262,3 +274,8 @@ class SystemOut(BaseModel):
     gpu_name: str | None
     compute_type: str
     diarization_available: bool
+
+
+class FramingIn(BaseModel):
+    mode: Literal["auto", "centre", "fit", "split"]
+    ratio: Literal["9:16", "1:1", "16:9"] = "9:16"

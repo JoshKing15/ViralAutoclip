@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
@@ -28,13 +29,23 @@ def is_remote(source: Source) -> bool:
 
 
 def _options(settings: IngestSettings, cancelled: Callable[[], bool] | None = None,
-             progress: Callable[[float], None] | None = None) -> dict:
+             progress: Callable[[float], None] | None = None, activity=None) -> dict:
+    last_update = 0.0
     def hook(status: dict) -> None:
+        nonlocal last_update
         if cancelled and cancelled():
             raise ingest.IngestError("Download cancelled.")
         total = status.get("total_bytes") or status.get("total_bytes_estimate")
+        now = time.monotonic()
+        if now - last_update < 1 and status.get("status") != "finished":
+            return
+        last_update = now
         if progress and total:
             progress(min(1.0, status.get("downloaded_bytes", 0) / total))
+        if activity:
+            downloaded = status.get("downloaded_bytes", 0) / (1024 * 1024)
+            maximum = f" / {total / (1024 * 1024):.1f} MB" if total else " MB"
+            activity(f"Downloaded {downloaded:.1f}{maximum}")
 
     options = {"quiet": True, "no_warnings": True, "noplaylist": True,
                "retries": 2, "fragment_retries": 2, "socket_timeout": 30,
@@ -141,14 +152,14 @@ def fetch_captions(source: Source, directory: Path, settings: IngestSettings,
 
 
 def download_audio(source: Source, directory: Path, settings: IngestSettings,
-                   cancelled=None, progress=None) -> Path:
+                   cancelled=None, progress=None, activity=None) -> Path:
     import yt_dlp
 
     directory.mkdir(parents=True, exist_ok=True)
     cached = ingest._find_downloaded_file(directory)
     if cached and cached.stat().st_size:
         return cached
-    options = _options(settings, cancelled, progress)
+    options = _options(settings, cancelled, progress, activity)
     options.update({"format": "bestaudio[ext=m4a]/bestaudio", "outtmpl": str(directory / "audio.%(ext)s")})
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
@@ -188,7 +199,7 @@ def clip_media(source: Source, clip: Clip) -> ClipMedia:
 
 
 def download_section(source: Source, clip: Clip, settings: IngestSettings,
-                     cancelled=None, progress=None) -> ClipMedia:
+                     cancelled=None, progress=None, activity=None) -> ClipMedia:
     import yt_dlp
     from yt_dlp.utils import download_range_func
 
@@ -201,7 +212,7 @@ def download_section(source: Source, clip: Clip, settings: IngestSettings,
     # Without a validated manifest, files may be leftovers from an interrupted cut.
     shutil.rmtree(directory, ignore_errors=True)
     directory.mkdir(parents=True, exist_ok=True)
-    options = _options(settings, cancelled, progress)
+    options = _options(settings, cancelled, progress, activity)
     options.update({"format": settings.ytdlp_format, "outtmpl": str(directory / "video.%(ext)s"),
                     "download_ranges": download_range_func(None, [(start, end)]),
                     "force_keyframes_at_cuts": True, "merge_output_format": "mp4"})

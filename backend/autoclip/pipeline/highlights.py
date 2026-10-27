@@ -130,6 +130,7 @@ async def detect(
     job_id: str,
     silences: list[Silence] | None = None,
     on_progress: Callable[[float], None] | None = None,
+    on_window: Callable[[int, int, bool], None] | None = None,
     cache_dir: Path | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> list[Clip]:
@@ -161,8 +162,10 @@ async def detect(
                            sort_keys=True).encode()
             ).hexdigest()
             checkpoint = cache_dir / f"{fingerprint}.json" if cache_dir else None
+            reused = False
             try:
                 if checkpoint and checkpoint.exists():
+                    reused = True
                     result = ClipCandidates.model_validate_json(checkpoint.read_text(encoding="utf-8"))
                 else:
                     result = await provider.detect_highlights(window, config)
@@ -186,6 +189,8 @@ async def detect(
                 completed += 1
                 if on_progress:
                     on_progress(completed / len(windows))
+                if on_window:
+                    on_window(completed, len(windows), reused)
             return candidates
 
     results = await asyncio.gather(*(run_window(w) for w in windows))

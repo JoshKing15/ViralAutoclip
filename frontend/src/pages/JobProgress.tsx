@@ -19,6 +19,8 @@ export function JobProgress() {
   const { jobId } = useParams()
   const navigate = useNavigate()
   const { job, progress } = useJobStream(jobId)
+  const [clock, setClock] = useState(Date.now())
+  useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer) }, [])
   const [cancelling, setCancelling] = useState(false)
   const [actionError, setActionError] = useState<Error | null>(null)
 
@@ -99,6 +101,12 @@ export function JobProgress() {
         </div>
       </div>
 
+      <div className="mt-5 flex flex-wrap gap-5 text-xs text-ink-400" aria-live="polite">
+        <span>Elapsed: {job.started_at ? formatDuration(Math.max(0, ((job.finished_at ? Date.parse(job.finished_at) : clock) - Date.parse(job.started_at)) / 1000)) : 'Waiting to start'}</span>
+        <span>{progress?.message || job.progress_message || 'Waiting for activity…'}</span>
+        <span className="text-ink-600">Progress is an estimate, not time remaining.</span>
+      </div>
+
       {job.error && (
         <div className="mt-8 max-w-3xl">
           <ErrorNote error={new Error(job.error)} />
@@ -173,7 +181,7 @@ export function JobProgress() {
                         ? 'cancelled here'
                         : 'failed here'
                       : state === 'active'
-                        ? (progress?.message ?? stage.note)
+                        ? (progress?.message || job.progress_message || stage.note)
                         : stage.note}
                   </span>
                 </div>
