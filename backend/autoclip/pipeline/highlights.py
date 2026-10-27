@@ -129,7 +129,12 @@ async def detect(
     on_progress: Callable[[float], None] | None = None,
 ) -> list[Clip]:
     """Run detection across the whole transcript and return ranked clips."""
-    windows = build_windows(transcript)
+    # Smaller local prompts reduce inference time and context memory pressure.
+    windows = build_windows(
+        transcript,
+        window_s=max(180.0, config.max_duration_s * 2) if provider.name == "ollama" else WINDOW_S,
+        overlap_s=max(60.0, config.max_duration_s) if provider.name == "ollama" else OVERLAP_S,
+    )
     if not windows:
         raise HighlightError("The transcript is empty, so there is nothing to clip.")
 
