@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { api, formatDuration } from '../api'
+import { api, formatDuration, type QualityReport } from '../api'
 import { ErrorNote } from '../components/ErrorNote'
 import { useJobStream } from '../useJobStream'
 
@@ -19,6 +19,10 @@ export function JobProgress() {
   const { jobId } = useParams()
   const navigate = useNavigate()
   const { job, progress } = useJobStream(jobId)
+  const [quality, setQuality] = useState<QualityReport>({ clips: [] })
+  useEffect(() => {
+    if (jobId && (job?.status === 'failed' || job?.status === 'done')) api.qualityReport(jobId).then(setQuality).catch(() => undefined)
+  }, [jobId, job?.status])
   const [clock, setClock] = useState(Date.now())
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer) }, [])
   const [cancelling, setCancelling] = useState(false)
@@ -116,6 +120,11 @@ export function JobProgress() {
         </div>
       )}
 
+      {quality.clips.length > 0 && <details className="mt-6 max-w-3xl text-xs text-ink-400">
+        <summary className="cursor-pointer">Editorial quality report ({quality.clips.length} candidates)</summary>
+        <ul className="mt-3 space-y-3">{quality.clips.map((item, i) =>
+          <li key={i}><strong>{item.status} · {item.title}</strong><p>{item.reason}</p></li>)}</ul>
+      </details>}
       {actionError && (
         <div className="mt-8 max-w-3xl">
           <ErrorNote error={actionError} onDismiss={() => setActionError(null)} />

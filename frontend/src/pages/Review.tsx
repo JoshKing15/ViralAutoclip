@@ -10,6 +10,7 @@ import {
   type CropPath,
   type Job,
   type Word,
+  type QualityReport,
 } from '../api'
 import { CaptionEditor } from '../components/CaptionEditor'
 import { ClipPlayer } from '../components/ClipPlayer'
@@ -21,6 +22,7 @@ const RATIOS = ['9:16', '1:1', '16:9'] as const
 
 export function Review() {
   const { jobId } = useParams()
+  const [quality, setQuality] = useState<QualityReport>({ clips: [] })
   const [job, setJob] = useState<Job | null>(null)
   const [clips, setClips] = useState<Clip[]>([])
   const [styles, setStyles] = useState<CaptionStyle[]>([])
@@ -36,6 +38,7 @@ export function Review() {
 
   useEffect(() => {
     if (!jobId) return
+    api.qualityReport(jobId).then(setQuality).catch(() => undefined)
     void Promise.all([api.getJob(jobId), api.listClips(jobId), api.captionStyles()])
       .then(([loadedJob, loadedClips, loadedStyles]) => {
         setJob(loadedJob)
@@ -155,6 +158,7 @@ export function Review() {
   }
 
   const keptCount = clips.filter((clip) => clip.status === 'kept').length
+  const assessment = quality.clips.find((item) => item.clip_id === selected?.id)?.assessment
   const activeStyle = styles.find((style) => style.key === selected?.caption_style)
 
   if (error && clips.length === 0) {
@@ -195,6 +199,11 @@ export function Review() {
         </div>
       )}
 
+      {quality.clips.some((item) => item.status !== 'approved') && <details className="mt-5 text-xs text-ink-400">
+        <summary className="cursor-pointer">Editorial review: rejected candidates</summary>
+        <ul className="mt-3 space-y-2">{quality.clips.filter((item) => item.status !== 'approved').map((item, i) =>
+          <li key={i}><strong>{item.title}</strong>: {item.reason}</li>)}</ul>
+      </details>}
       {clips.length === 0 ? (
         <EmptyState />
       ) : (
@@ -256,6 +265,11 @@ export function Review() {
                   <p className="mt-2 max-w-prose text-[0.9375rem] leading-relaxed text-ink-300">
                     {selected.reason || 'No rationale returned for this clip.'}
                   </p>
+                  {assessment && <div className="mt-3 space-y-2 text-xs text-ink-400">
+                    <p>Editorial review · Hook {assessment.hook}/5 · Context {assessment.context}/5 · Payoff {assessment.payoff}/5</p>
+                    <p>Ending evidence: “{assessment.payoff_quote}”</p>
+                    <p>AI judgement, not a prediction of views. Check the original context.</p>
+                  </div>}
                   {selected.hook && (
                     <p className="mt-3 border-l-2 border-ink-700 pl-3 font-display text-lg italic text-ink-200">
                       “{selected.hook}”

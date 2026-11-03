@@ -164,3 +164,17 @@ def test_explicit_layout_real_render(tmp_path, mode):
         top, bottom = pixel(200), pixel(1400)
         assert top[0] > top[2] + 100
         assert bottom[2] > bottom[0] + 100
+
+
+def test_editorial_settings_and_report(client, sample):
+    response = client.post('/api/jobs', json={'source_id': 's', 'settings': {
+        'editorial_style': 'story', 'quality_review': True, 'quality_threshold': 80}})
+    assert response.status_code == 201
+    job_id = response.json()['id']
+    saved = store.get_job(job_id).settings['clips']
+    assert saved['editorial_style'] == 'story' and saved['quality_review']
+    assert saved['quality_threshold'] == 80
+    assert client.get(f'/api/jobs/{job_id}/quality-report').json() == {'clips': []}
+    assert client.get('/api/jobs/unknown/quality-report').status_code == 404
+    assert client.post('/api/jobs', json={'source_id': 's', 'settings': {
+        'quality_threshold': 100}}).status_code == 422

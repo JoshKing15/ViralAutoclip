@@ -353,12 +353,14 @@ class PipelineRunner:
             config,
             job_id=self.job.id,
             silences=silences,
-            on_progress=lambda fraction: self._emit(stage, fraction,
+            on_progress=lambda fraction: self._emit(stage, fraction * (0.75 if config.quality_review else 1),
                 f"Analysing transcript sections: {round(fraction * 100)}%"),
             cache_dir=self.workspace.root / "highlight-windows",
             cancelled=self._is_cancelled,
-            on_window=lambda done, total, cached: self._emit(stage, done / total,
+            on_window=lambda done, total, cached: self._emit(stage, done / total * (0.75 if config.quality_review else 1),
                 f"Analysed section {done}/{total}" + (" (reused)" if cached else "")),
+            on_review=lambda done, total: self._emit(stage, 0.75 + 0.25 * done / total,
+                f"Editorial review {done}/{total}: checking hook, context and payoff"),
         )
 
         store.replace_clips(self.job.id, clips)

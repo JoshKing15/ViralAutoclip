@@ -19,7 +19,7 @@ export function Ingest() {
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const [providers, setProviders] = useState<ProviderStatus[]>([])
-  const [overrides, setOverrides] = useState<JobSettingsOverrides>({ max_clips: 3, min_duration_s: 30, max_duration_s: 60, diarization: false })
+  const [overrides, setOverrides] = useState<JobSettingsOverrides>({ max_clips: 3, min_duration_s: 45, max_duration_s: 120, diarization: false, editorial_style: 'story', quality_review: true, quality_threshold: 75, framing: 'fit', ratio: '9:16', caption_style: 'clean_lower' })
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -109,6 +109,30 @@ export function Ingest() {
           <p className="mt-3 text-xs leading-relaxed text-ink-500">
             Only download video you own or have the rights to process.
           </p>
+
+          <label className="mt-6 block">
+            <span className="eyebrow">Clip format</span>
+            <select className="field mt-2 text-sm" value={overrides.editorial_style ?? 'general'} disabled={busy !== null}
+              onChange={(e) => {
+                const format = e.target.value
+                const preset = format === 'story' ? { min_duration_s: 45, max_duration_s: 120, ratio: '9:16', framing: 'fit', caption_style: 'clean_lower' }
+                  : format === 'newsroom' ? { min_duration_s: 60, max_duration_s: 180, ratio: '16:9', framing: 'fit', caption_style: 'clean_lower' }
+                  : { min_duration_s: 20, max_duration_s: 60, ratio: '9:16', framing: 'auto', caption_style: 'bold_pop' }
+                setOverrides((current) => ({ ...current, ...preset, editorial_style: format }))
+              }}>
+              <option value="story">Complete podcast story · 45–120s</option>
+              <option value="newsroom">News discussion · 60–180s · landscape</option>
+              <option value="general">Quick highlights · 20–60s</option>
+            </select>
+            <span className="mt-1 block text-xs text-ink-500">Format sets suggested length, layout and captions. Options below let you adjust them.</span>
+          </label>
+          <label className="mt-4 flex items-start gap-3 text-sm text-ink-200">
+            <input className="mt-1" type="checkbox" checked={overrides.quality_review ?? false}
+              disabled={busy !== null} onChange={(e) => setOverrides((current) => ({ ...current, quality_review: e.target.checked }))} />
+            <span>Editorial quality check
+              <span className="mt-1 block text-xs text-ink-500">Extra AI review of the opening, context and payoff. Slower and uses more memory; can return fewer clips or none.</span>
+            </span>
+          </label>
 
           <label className="mt-6 block">
             <span className="eyebrow">Topics to look for (optional)</span>
@@ -261,7 +285,7 @@ function AdvancedOptions({
               ]}
             />
             <NumberField
-              label="Max clips"
+              label="Up to this many clips"
               value={overrides.max_clips}
               placeholder="10"
               min={1}
@@ -286,6 +310,17 @@ function AdvancedOptions({
                 onChange={(v) => set('max_duration_s', v)}
               />
             </div>
+            <NumberField label="Minimum editorial score" value={overrides.quality_threshold} placeholder="75"
+              min={50} max={95} onChange={(value) => set('quality_threshold', value)} />
+            <Selector label="Output shape" value={overrides.ratio ?? '9:16'}
+              onChange={(value) => set('ratio', value)} options={[
+                { value: '9:16', label: 'Vertical 9:16' }, { value: '16:9', label: 'Landscape 16:9' }, { value: '1:1', label: 'Square 1:1' },
+              ]} />
+            <Selector label="Captions" value={overrides.caption_style ?? 'clean_lower'}
+              onChange={(value) => set('caption_style', value)} options={[
+                { value: 'clean_lower', label: 'Clean lower captions' }, { value: 'bold_pop', label: 'Bold highlighted words' },
+                { value: 'boxed', label: 'Boxed captions' }, { value: 'karaoke_fill', label: 'Karaoke fill' },
+              ]} />
             <Selector label="Framing" value={overrides.framing ?? 'auto'}
               onChange={(value) => set('framing', value)} options={[
                 { value: 'auto', label: 'Auto — track the speaker' },

@@ -12,6 +12,7 @@ buys back the clips that live on the seams.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import logging
 import hashlib
 import json
@@ -106,9 +107,13 @@ def render_window_text(transcript: Transcript, first: int, last: int) -> str:
     """
     parts: list[str] = []
     current_speaker: str | None = None
+    last_time_marker = -10.0
 
     for index in range(first, min(last + 1, len(transcript.words))):
         word = transcript.words[index]
+        if word.start - last_time_marker >= 5:
+            parts.append(f"<time={word.start:.2f}s>")
+            last_time_marker = word.start
         if word.speaker and word.speaker != current_speaker:
             current_speaker = word.speaker
             parts.append(f"\n<{word.speaker}>")
@@ -133,6 +138,7 @@ async def detect(
     on_window: Callable[[int, int, bool], None] | None = None,
     cache_dir: Path | None = None,
     cancelled: Callable[[], bool] | None = None,
+    on_review: Callable[[int, int], None] | None = None,
 ) -> list[Clip]:
     """Run detection across the whole transcript and return ranked clips."""
     # Smaller local prompts reduce inference time and context memory pressure.
@@ -209,7 +215,17 @@ async def detect(
         )
 
     log.info("Providers proposed %d raw candidates.", len(candidates))
-    return build_clips(transcript, candidates, config, job_id=job_id, silences=silences or [])
+    shortlist_config = replace(config, max_clips=min(8, config.max_clips * 2)) if config.quality_review else config
+    clips = build_clips(transcript, candidates, shortlist_config, job_id=job_id, silences=silences or [])
+    if config.quality_review:
+        from . import editorial
+        clips = await editorial.review(clips, transcript, provider, config,
+            report_path=cache_dir.parent / "quality-report.json" if cache_dir else None,
+            cache_dir=cache_dir.parent / "editorial-cache" if cache_dir else None,
+            cancelled=cancelled, on_progress=on_review)
+        if not clips:
+            raise HighlightError("No shortlisted clips passed editorial review. Check the quality report for rejected openings, context or payoffs. Try a broader topic or a length range that fits a complete discussion.")
+    return clips
 
 
 def build_clips(

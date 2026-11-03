@@ -64,6 +64,11 @@ class OllamaProvider(LLMProvider):
             "options": {"temperature": config.temperature},
         }
 
+        if config.quality_review:
+            # Time-tagged excerpts and the review rubric must fit without prompt truncation.
+            payload["options"]["num_ctx"] = 8192
+            payload["options"]["num_predict"] = 1200
+
         # Qwen3 supports disabling reasoning; leave other model families unchanged.
         if self.model.split(":")[0].split("/")[-1] == "qwen3":
             payload["think"] = False

@@ -66,6 +66,9 @@ class WhisperSettings(BaseModel):
 
 
 class ClipSettings(BaseModel):
+    editorial_style: Literal["general", "story", "newsroom"] = "general"
+    quality_review: bool = False
+    quality_threshold: int = Field(default=75, ge=50, le=95)
     topic: str = Field(default="", max_length=500)
     min_duration_s: float = 20.0
     max_duration_s: float = 90.0

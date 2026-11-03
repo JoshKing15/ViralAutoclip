@@ -87,6 +87,10 @@ def detection_config(settings: Settings | None = None) -> DetectionConfig:
     settings = settings if settings is not None else load()
     return DetectionConfig(
         topic=settings.clips.topic,
+        editorial_style=settings.clips.editorial_style,
+        quality_review=settings.clips.quality_review,
+        quality_threshold=settings.clips.quality_threshold,
+        prompt_version="editorial_v2" if settings.clips.editorial_style != "general" else "highlight_v1",
         min_duration_s=settings.clips.min_duration_s,
         max_duration_s=settings.clips.max_duration_s,
         max_clips=settings.clips.max_clips,

@@ -169,6 +169,9 @@ export interface SystemStatus {
 }
 
 export interface JobSettingsOverrides {
+  editorial_style?: string
+  quality_review?: boolean
+  quality_threshold?: number
   topic?: string
   framing?: string
   provider?: string
@@ -306,6 +309,7 @@ export const api = {
   getPosting: (clipId: string) => request<PostingDraft>(`/api/clips/${clipId}/posting`),
   generatePosting: (clipId: string) => request<PostingDraft>(`/api/clips/${clipId}/posting`, { method: 'POST' }),
   savePosting: (clipId: string, draft: PostingDraft) => request<PostingDraft>(`/api/clips/${clipId}/posting`, { method: 'PUT', body: JSON.stringify(draft) }),
+  qualityReport: (jobId: string) => request<QualityReport>(`/api/jobs/${jobId}/quality-report`),
   clipMediaUrl: (clipId: string) => `/api/clips/${clipId}/media`,
   mediaUrl: (jobId: string) => `/api/jobs/${jobId}/media`,
 }
@@ -349,4 +353,9 @@ export interface PostingDraft {
   hashtags: string[]
   commentary_points: string[]
   source_credit: string
+}
+
+export interface QualityReport {
+  clips: { clip_id?: string; title: string; status: 'approved' | 'rejected' | 'error'; score?: number; reason: string;
+    assessment?: { hook: number; context: number; payoff: number; specificity: number; opening_quote: string; payoff_quote: string } }[]
 }

@@ -60,6 +60,9 @@ class YouTubeIngestIn(BaseModel):
 class JobSettingsIn(BaseModel):
     """Per-job overrides. Anything omitted falls back to saved settings."""
 
+    editorial_style: Literal["general", "story", "newsroom"] | None = None
+    quality_review: bool | None = None
+    quality_threshold: int | None = Field(default=None, ge=50, le=95)
     topic: str | None = Field(default=None, max_length=500)
     framing: Literal["auto", "centre", "fit", "split"] | None = None
     provider: str | None = None
