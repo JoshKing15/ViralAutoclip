@@ -87,7 +87,7 @@ def test_long_youtube_reference_rejected_before_download(monkeypatch):
     monkeypatch.setattr(routes.ingest,'ingest_youtube',download)
     with TestClient(create_app()) as client:
         response = client.post('/api/reference-styles/youtube',json={'url':'https://www.youtube.com/watch?v=abcdefghijk'})
-        assert response.status_code == 422 and '5 minutes' in response.text
+        assert response.status_code == 422 and '20 minutes' in response.text
 
 
 @pytest.mark.asyncio
@@ -120,3 +120,49 @@ async def test_failed_analysis_is_persisted_and_not_usable(tmp_path,monkeypatch)
     await styles.analyse(profile,config.Settings())
     assert styles.load(profile['id'])['status'] == 'failed'
     assert 'missing' in profile['message'].lower()
+
+
+@pytest.mark.asyncio
+async def test_long_structure_reads_every_word_in_bounded_cached_sections(tmp_path):
+    class Provider:
+        name, model, base_url = 'ollama','test','local'
+        payloads = []
+        async def _complete(self, system, payload, cfg):
+            value = json.loads(payload)
+            self.payloads.append(value)
+            return json.dumps({'summary':'A question develops into an argument, followed by an answer.'})
+    provider = Provider()
+    transcript = Transcript(words=[Word(f'word{i}',i,i+1) for i in range(1001)])
+    for _ in range(2):
+        result = await styles.analyse_structure(transcript,provider,config.Settings(),tmp_path,'s',lambda _: None)
+        assert result['section_count'] == 3
+    assert len(provider.payloads) == 4
+    text = ' '.join(p['text'] for p in provider.payloads if isinstance(p,dict))
+    assert text == ' '.join(w.text for w in transcript.words)
+    assert max(len(p['text'].split()) for p in provider.payloads if isinstance(p,dict)) <= 400
+
+
+def test_twenty_minute_reference_acceptance_and_preset_limits(monkeypatch,tmp_path):
+    monkeypatch.setenv('AUTOCLIP_NO_WORKER','1')
+    from autoclip.api import reference_styles as routes
+    monkeypatch.setattr(routes.long_video,'register',lambda *a: SimpleNamespace(duration_s=1200))
+    def download(*a):
+        return Source(id='long',type='youtube',path=str(tmp_path/'long.mp4'),duration_s=1200,has_video=True)
+    monkeypatch.setattr(routes.ingest,'ingest_youtube',download)
+    with TestClient(create_app()) as client:
+        assert client.post('/api/reference-styles/youtube',json={'url':'https://www.youtube.com/watch?v=abcdefghijk'}).status_code == 200
+        monkeypatch.setattr(routes,'start',lambda profile,tasks: profile)
+        assert client.post('/api/reference-styles',json={'name':'Long discussions','source_ids':['long']}).status_code == 202
+    settings = styles.Recommendations(min_duration_s=840,max_duration_s=1200)
+    assert settings.max_duration_s == 1200
+    with pytest.raises(ValueError):
+        styles.Recommendations(max_duration_s=1201)
+
+
+def test_long_discussion_keeps_full_text_with_compact_boundaries():
+    from autoclip.pipeline.highlights import render_window_text
+    transcript = Transcript(words=[Word(f'word{i}',i,i+1) for i in range(1200)])
+    rendered = render_window_text(transcript,0,1199)
+    assert '[0]word0' in rendered and '[1199]word1199' in rendered
+    assert 'word600' in rendered
+    assert rendered.count('[') == 120

@@ -2,7 +2,7 @@
 
 Open **Reference styles** in the app. Add 1–5 finished clips (ideally 3–5 from
 one channel) using individual YouTube video URLs or uploads. Each reference must
-be at most five minutes. Full podcast episodes and channel URLs are not the
+be at most 20 minutes. Full podcast episodes and channel URLs are not the
 right input: this feature studies the editor's final choices. YouTube reference
 imports check metadata before downloading; bot checks and unavailable videos
 can still block downloads. Upload a local copy when needed.
@@ -59,3 +59,18 @@ cuts, remove pauses or add zooms to mimic the cut rate. The feature is an editab
 reference-derived preset, not an automatic style clone or a promise of views.
 Audio-only transcription cannot capture gestures, reaction shots or translation
 errors, so watch the output before posting.
+
+## Longer references
+
+References up to 20 minutes (1200 seconds) are accepted. Longer transcripts are
+read in batches of at most 400 words, then condensed into a per-reference
+structure summary before the final preset is generated. All spoken text is
+covered by the batches; individual summaries can still miss details. Completed
+AI summaries are cached by transcript, provider and model. Progress reports the
+current section. Longer references take more time, especially on a laptop.
+Three optional frames still sample 10%, 50% and 90% of each video.
+
+Suggested output lengths and editable duration controls now extend to 1200
+seconds. A preset derived from a 20-minute reference can therefore suggest a
+longer discussion clip. Choosing a short-form Clip format afterward replaces
+those suggested lengths. Start a new job to use revised settings.

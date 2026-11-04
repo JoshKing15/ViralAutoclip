@@ -246,7 +246,7 @@ def render_window_prompt(window: TranscriptWindow, config: DetectionConfig) -> s
 
     return (
         f"Transcript section, words {window.first_word} to {window.last_word}.\n"
-        f"Each word is tagged with its index as [index]word.\n"
+        f"Cut boundaries are tagged as [index]word. Long sections have fewer tags; choose tagged boundaries.\n"
         f"{speaker_note}\n"
         f"Clip length must be between {config.min_duration_s:.0f} and "
         f"{config.max_duration_s:.0f} seconds.\n"

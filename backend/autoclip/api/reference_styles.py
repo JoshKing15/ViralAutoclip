@@ -50,8 +50,8 @@ async def import_youtube(payload: URLIn):
     settings = config.load().ingest
     try:
         metadata = await asyncio.to_thread(long_video.register, payload.url, settings)
-        if not 0 < metadata.duration_s <= 300:
-            raise ValueError('Use a finished clip up to 5 minutes, not a full podcast episode.')
+        if not 0 < metadata.duration_s <= 1200:
+            raise ValueError('Use a finished clip up to 20 minutes, not a full podcast episode.')
         source = await asyncio.to_thread(ingest.ingest_youtube, payload.url, settings)
         await asyncio.to_thread(store.create_source, source)
         return {'id': source.id, 'title': source.title, 'duration_s': source.duration_s}
@@ -83,8 +83,8 @@ async def create_style(payload: CreateIn, tasks: BackgroundTasks):
         source = await asyncio.to_thread(store.get_source, source_id)
         if source is None:
             raise HTTPException(404, 'Reference source not found.')
-        if not 0 < source.duration_s <= 300 or not source.has_video:
-            raise HTTPException(422, 'References must be finished video clips up to 5 minutes.')
+        if not 0 < source.duration_s <= 1200 or not source.has_video:
+            raise HTTPException(422, 'References must be finished video clips up to 20 minutes.')
     profile = dict(id=new_id(), name=payload.name.strip(), source_ids=ids,
                    use_vision=payload.use_vision, evidence=[], guidance='', summary='', recommendations={})
     return start(profile, tasks)

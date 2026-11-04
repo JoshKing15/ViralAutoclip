@@ -315,7 +315,7 @@ function AdvancedOptions({
                 value={overrides.min_duration_s}
                 placeholder="20"
                 min={5}
-                max={300}
+                max={1200}
                 onChange={(v) => set('min_duration_s', v)}
               />
               <NumberField
@@ -323,7 +323,7 @@ function AdvancedOptions({
                 value={overrides.max_duration_s}
                 placeholder="90"
                 min={5}
-                max={300}
+                max={1200}
                 onChange={(v) => set('max_duration_s', v)}
               />
             </div>

@@ -108,6 +108,9 @@ def render_window_text(transcript: Transcript, first: int, last: int) -> str:
     parts: list[str] = []
     current_speaker: str | None = None
     last_time_marker = -10.0
+    # Long discussions need their whole text, without the cost of an index on
+    # every word. Mark both ends of short groups as eligible cut boundaries.
+    compact = last - first > 900 and transcript.words[last].end - transcript.words[first].start > 600
 
     for index in range(first, min(last + 1, len(transcript.words))):
         word = transcript.words[index]
@@ -117,7 +120,8 @@ def render_window_text(transcript: Transcript, first: int, last: int) -> str:
         if word.speaker and word.speaker != current_speaker:
             current_speaker = word.speaker
             parts.append(f"\n<{word.speaker}>")
-        parts.append(f"[{index}]{word.text}")
+        tagged = not compact or (index-first) % 20 in (0, 19) or index == last
+        parts.append(f"[{index}]{word.text}" if tagged else word.text)
 
     return " ".join(parts).strip()
 
@@ -142,10 +146,12 @@ async def detect(
 ) -> list[Clip]:
     """Run detection across the whole transcript and return ranked clips."""
     # Smaller local prompts reduce inference time and context memory pressure.
+    long_discussion = config.max_duration_s > 300
     windows = build_windows(
         transcript,
-        window_s=max(180.0, config.max_duration_s * 2) if provider.name == "ollama" else WINDOW_S,
-        overlap_s=max(60.0, config.max_duration_s) if provider.name == "ollama" else OVERLAP_S,
+        window_s=max(180.0, config.max_duration_s * 1.2) if long_discussion else
+                 max(180.0, config.max_duration_s * 2) if provider.name == "ollama" else WINDOW_S,
+        overlap_s=max(60.0, config.max_duration_s) if long_discussion or provider.name == "ollama" else OVERLAP_S,
     )
     if not windows:
         raise HighlightError("The transcript is empty, so there is nothing to clip.")

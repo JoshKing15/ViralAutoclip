@@ -27,7 +27,7 @@ export function ReferenceStyles() {
   const patch = (field: string, value: string | number) => setSelected(p => p ? {...p, reviewed: false, recommendations: {...p.recommendations, [field]: value}} : p)
   return <div className="max-w-4xl pt-14 space-y-6">
     <h1 className="font-display text-4xl">Learn from reference clips</h1>
-    <p>Add 1–5 finished clips, ideally 3–5 from one channel. The app measures duration and scene changes, studies spoken openings and endings, and proposes an editable preset. Use clips up to five minutes each.</p>
+    <p>Add 1–5 finished clips, ideally 3–5 from one channel. The app measures duration and scene changes, studies spoken openings and endings, and proposes an editable preset. Use clips up to 20 minutes each.</p>
     <section className="space-y-5 border border-ink-700 p-5">
       <label className="block">Preset name<input className="field" maxLength={80} value={name} onChange={e => setName(e.target.value)} /></label>
       <div className="flex gap-3"><input className="field" placeholder="Short YouTube reference video URL" value={url} onChange={e => setUrl(e.target.value)} />
@@ -38,7 +38,7 @@ export function ReferenceStyles() {
         const file = e.target.files?.[0]; if (!file) return
         void action('Uploading', async () => {
           const source = await api.uploadSource(file)
-          if (source.duration_s > 300 || !source.has_video) throw Error('Choose a video up to five minutes.')
+          if (source.duration_s > 1200 || !source.has_video) throw Error('Choose a video up to 20 minutes.')
           setRefs(r => [...r, source])
         }); e.target.value = ''
       }} /></label>
@@ -61,7 +61,7 @@ export function ReferenceStyles() {
         <label className="block">Name<input className="field" value={selected.name} maxLength={80} onChange={e => setSelected({...selected, name: e.target.value, reviewed: false})} /></label>
         <label className="block">Editorial preferences<textarea className="field min-h-40" maxLength={1500} value={selected.guidance} onChange={e => setSelected({...selected, guidance: e.target.value, reviewed: false})} /></label>
         <div className="grid grid-cols-2 gap-5">
-          {(['min_duration_s','max_duration_s'] as const).map(field => <label key={field}>{field === 'min_duration_s' ? 'Minimum seconds' : 'Maximum seconds'}<input className="field" type="number" min={10} max={600} value={selected.recommendations[field]} onChange={e => patch(field, Number(e.target.value))} /></label>)}
+          {(['min_duration_s','max_duration_s'] as const).map(field => <label key={field}>{field === 'min_duration_s' ? 'Minimum seconds' : 'Maximum seconds'}<input className="field" type="number" min={10} max={1200} value={selected.recommendations[field]} onChange={e => patch(field, Number(e.target.value))} /></label>)}
           {Object.entries({ratio:['9:16','16:9','1:1'],framing:['fit','auto','centre','split'],caption_style:['clean_lower','bold_pop','boxed','karaoke'],editorial_style:['story','newsroom','general']}).map(([field,opts]) => <label key={field}>{field.replaceAll('_',' ')}<select className="field" value={String(selected.recommendations[field as keyof JobSettingsOverrides])} onChange={e => patch(field,e.target.value)}>{opts.map(v => <option key={v}>{v}</option>)}</select></label>)}
         </div>
         <p className="text-xs text-ink-400">Length and aspect ratio are measured. Caption style and framing are editable suggestions. Measured cuts do not automatically insert cuts into your exports.</p>
