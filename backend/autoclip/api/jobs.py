@@ -51,6 +51,16 @@ def _apply_overrides(settings, overrides: JobSettingsIn):
     if overrides.ratio:
         merged.export.ratio = overrides.ratio
 
+    if overrides.reference_style_id:
+        from .reference_styles import get_profile
+        profile = get_profile(overrides.reference_style_id)
+        if profile['status'] != 'ready' or not profile.get('reviewed'):
+            raise HTTPException(422, 'Review and save the reference preset before using it.')
+        merged.clips.reference_guidance = profile['guidance']
+        merged.clips.reference_style_id = profile['id']
+    elif overrides.reference_style_id is not None:
+        merged.clips.reference_guidance = ''
+        merged.clips.reference_style_id = ''
     return merged
 
 

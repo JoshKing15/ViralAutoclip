@@ -91,7 +91,7 @@ async def review(clips: list[Clip], transcript: Transcript, provider: LLMProvide
         if cancelled and cancelled():
             raise RuntimeError("Editorial review cancelled.")
         text = transcript.text_between(clip.start_word, clip.end_word)
-        payload = json.dumps({"format": config.editorial_style, "topic": config.topic,
+        payload = json.dumps({"format": config.editorial_style, "topic": config.topic, "reference_preferences": config.reference_guidance,
                               "duration_seconds": clip.duration_s, "transcript": text}, ensure_ascii=False)
         key = hashlib.sha256(json.dumps([VERSION, provider.name, provider.model, provider.base_url,
                                         system, payload], sort_keys=True).encode()).hexdigest()

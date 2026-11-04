@@ -66,6 +66,8 @@ class WhisperSettings(BaseModel):
 
 
 class ClipSettings(BaseModel):
+    reference_guidance: str = Field(default="", max_length=1500)
+    reference_style_id: str = ""
     editorial_style: Literal["general", "story", "newsroom"] = "general"
     quality_review: bool = False
     quality_threshold: int = Field(default=75, ge=50, le=95)

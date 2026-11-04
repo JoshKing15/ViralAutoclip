@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 
+import { ReferenceStyles } from './pages/ReferenceStyles'
 import { App } from './App'
 import './index.css'
 import { Ingest } from './pages/Ingest'
@@ -17,6 +18,7 @@ const router = createBrowserRouter([
       { index: true, element: <Ingest /> },
       { path: 'jobs/:jobId', element: <JobProgress /> },
       { path: 'jobs/:jobId/clips', element: <Review /> },
+      { path: 'reference-styles', element: <ReferenceStyles /> },
       { path: 'settings', element: <Settings /> },
     ],
   },

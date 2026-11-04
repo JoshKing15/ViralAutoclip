@@ -12,6 +12,9 @@ import {
 import { ErrorNote } from '../components/ErrorNote'
 
 export function Ingest() {
+  const [referenceStyles, setReferenceStyles] = useState<import('../api').ReferenceStyle[]>([])
+  useEffect(() => { api.referenceStyles().then(setReferenceStyles).catch(() => {}) }, [])
+
   const navigate = useNavigate()
   const [url, setUrl] = useState('')
   const [transcriptFirst, setTranscriptFirst] = useState(true)
@@ -110,6 +113,20 @@ export function Ingest() {
             Only download video you own or have the rights to process.
           </p>
 
+          <label className="mt-6 block">
+            <span className="eyebrow">Reference preset</span>
+            <select className="field mt-2" disabled={busy !== null} value={overrides.reference_style_id ?? ''}
+              onChange={e => {
+                const id = e.target.value
+                const profile = referenceStyles.find(p => p.id === id)
+                setOverrides(current => ({...current, ...(profile?.recommendations ?? {}), reference_style_id: id}))
+              }}>
+              <option value="">No reference preset</option>
+              {referenceStyles.filter(p => p.status === 'ready' && p.reviewed).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <a className="mt-2 block text-xs text-sodium-500" href="/reference-styles">Analyse reference clips and save a preset →</a>
+            <p className="mt-1 text-xs text-ink-500">Choosing a preset applies its length, layout, captions and editorial preferences. You can adjust the options below.</p>
+          </label>
           <label className="mt-6 block">
             <span className="eyebrow">Clip format</span>
             <select className="field mt-2 text-sm" value={overrides.editorial_style ?? 'general'} disabled={busy !== null}

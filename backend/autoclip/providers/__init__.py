@@ -87,6 +87,7 @@ def detection_config(settings: Settings | None = None) -> DetectionConfig:
     settings = settings if settings is not None else load()
     return DetectionConfig(
         topic=settings.clips.topic,
+        reference_guidance=settings.clips.reference_guidance,
         editorial_style=settings.clips.editorial_style,
         quality_review=settings.clips.quality_review,
         quality_threshold=settings.clips.quality_threshold,

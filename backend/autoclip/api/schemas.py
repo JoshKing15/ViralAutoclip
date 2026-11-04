@@ -58,6 +58,7 @@ class YouTubeIngestIn(BaseModel):
 
 
 class JobSettingsIn(BaseModel):
+    reference_style_id: str | None = None
     """Per-job overrides. Anything omitted falls back to saved settings."""
 
     editorial_style: Literal["general", "story", "newsroom"] | None = None

@@ -169,6 +169,7 @@ export interface SystemStatus {
 }
 
 export interface JobSettingsOverrides {
+  reference_style_id?: string
   editorial_style?: string
   quality_review?: boolean
   quality_threshold?: number
@@ -232,6 +233,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  referenceStyles: () => request<ReferenceStyle[]>('/api/reference-styles'),
+  referenceStyle: (id: string) => request<ReferenceStyle>(`/api/reference-styles/${id}`),
+  referenceYouTube: (url: string) => request<{id: string; title: string}>('/api/reference-styles/youtube', {method: 'POST', body: JSON.stringify({url})}),
+  createReferenceStyle: (name: string, source_ids: string[], use_vision: boolean) => request<ReferenceStyle>('/api/reference-styles', {method: 'POST', body: JSON.stringify({name, source_ids, use_vision})}),
+  retryReferenceStyle: (id: string) => request<ReferenceStyle>(`/api/reference-styles/${id}/retry`, {method: 'POST'}),
+  saveReferenceStyle: (p: ReferenceStyle) => request<ReferenceStyle>(`/api/reference-styles/${p.id}`, {method: 'PUT', body: JSON.stringify({name: p.name, guidance: p.guidance, recommendations: p.recommendations})}),
+
   health: () => request<{ status: string; version: string }>('/api/health'),
   system: () => request<SystemStatus>('/api/system'),
   fetchModels: () => request<void>('/api/system/models', { method: 'POST' }),
@@ -358,4 +366,12 @@ export interface PostingDraft {
 export interface QualityReport {
   clips: { clip_id?: string; title: string; status: 'approved' | 'rejected' | 'error'; score?: number; reason: string;
     assessment?: { hook: number; context: number; payoff: number; specificity: number; opening_quote: string; payoff_quote: string } }[]
+}
+
+export interface ReferenceStyle {
+  id: string; name: string; status: 'analysing' | 'ready' | 'failed'; message: string;
+  reviewed: boolean; guidance: string; summary: string; limits?: string;
+  recommendations: JobSettingsOverrides;
+  evidence: {source_id: string; title: string; opening: string; ending: string;
+    measurements: {duration_s: number; width: number; height: number; cut_count: number; median_shot_s: number}; visual: unknown}[];
 }
