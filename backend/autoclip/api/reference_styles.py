@@ -1,5 +1,6 @@
 """Reference style analysis, persistence and review."""
 import asyncio
+import time
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 from .. import config
@@ -33,7 +34,7 @@ def get_profile(style_id: str) -> dict:
     except (ValueError, FileNotFoundError):
         raise HTTPException(404, 'Style not found.')
     if profile['status'] == 'analysing' and style_id not in active:
-        profile.update(status='failed', message='Analysis was interrupted. Retry to reuse completed work.')
+        profile.update(status='failed', finished_at_s=time.time(), message='Analysis was interrupted. Retry to reuse completed work.')
         styles.save(profile)
     return profile
 
@@ -69,7 +70,8 @@ async def run(profile, settings):
 def start(profile, tasks):
     if active:
         raise HTTPException(409, 'Another reference analysis is running. Wait for it to finish.')
-    profile.update(status='analysing', reviewed=False, message='Starting reference analysis')
+    profile.update(status='analysing', reviewed=False, message='Starting reference analysis',
+                   started_at_s=time.time(), finished_at_s=None, updated_at_s=time.time())
     active.add(profile['id'])
     styles.save(profile)
     tasks.add_task(run, profile, config.load())

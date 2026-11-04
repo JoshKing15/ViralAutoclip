@@ -74,3 +74,23 @@ Suggested output lengths and editable duration controls now extend to 1200
 seconds. A preset derived from a 20-minute reference can therefore suggest a
 longer discussion clip. Choosing a short-form Clip format afterward replaces
 those suggested lengths. Start a new job to use revised settings.
+
+## Progress and estimates
+
+YouTube reference downloads run as background tasks. The page polls a persisted
+status: metadata check, transfer or processing. Where yt-dlp provides size and
+speed, it shows current stream percentage, MB, MB/s and estimated seconds left.
+Video and audio streams can download separately, so the percentage can reset
+when a new stream starts. Stream ETA excludes merging, subsequent streams and AI
+analysis. Unknown sizes and stalled transfers display no invented ETA. A last
+update timer makes inactivity visible.
+
+Download IDs and pending source selections are kept in this browser so refreshing
+the page reconnects to the transfer. A server restart marks an interrupted
+transfer failed, with instructions to add the link again. Existing downloads
+started with an older app version cannot acquire progress retroactively.
+
+Reference analysis shows elapsed time and its current stage, audio transcription
+percentage, section counts and completed visual frames. Overall AI finish time
+is unknown; hardware, model loading and transcript size vary too much for a
+reliable countdown. Retry starts a fresh elapsed timer and reuses saved work.

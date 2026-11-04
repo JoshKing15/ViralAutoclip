@@ -15,3 +15,6 @@ api_router.include_router(clips.router)
 api_router.include_router(settings.router)
 
 api_router.include_router(reference_styles.router)
+
+from . import reference_downloads
+api_router.include_router(reference_downloads.router)

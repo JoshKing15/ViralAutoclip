@@ -233,6 +233,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  startReferenceDownload: (url: string) => request<ReferenceDownload>('/api/reference-downloads', {method: 'POST', body: JSON.stringify({url})}),
+  referenceDownload: (id: string) => request<ReferenceDownload>(`/api/reference-downloads/${id}`),
+
   referenceStyles: () => request<ReferenceStyle[]>('/api/reference-styles'),
   referenceStyle: (id: string) => request<ReferenceStyle>(`/api/reference-styles/${id}`),
   referenceYouTube: (url: string) => request<{id: string; title: string}>('/api/reference-styles/youtube', {method: 'POST', body: JSON.stringify({url})}),
@@ -370,8 +373,17 @@ export interface QualityReport {
 
 export interface ReferenceStyle {
   id: string; name: string; status: 'analysing' | 'ready' | 'failed'; message: string;
+  started_at_s?: number; finished_at_s?: number; updated_at_s?: number;
   reviewed: boolean; guidance: string; summary: string; limits?: string;
   recommendations: JobSettingsOverrides;
   evidence: {source_id: string; title: string; opening: string; ending: string;
     measurements: {duration_s: number; width: number; height: number; cut_count: number; median_shot_s: number}; visual: unknown}[];
+}
+
+export interface ReferenceDownload {
+  id: string; status: 'running' | 'done' | 'failed'; message: string;
+  started_at_s: number; finished_at_s?: number; updated_at_s?: number;
+  progress: number | null; eta_s: number | null; downloaded_bytes: number;
+  total_bytes: number | null; speed_bps: number | null; stream: string;
+  source?: {id: string; title: string};
 }

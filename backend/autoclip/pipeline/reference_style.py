@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import base64
 import json
 import hashlib
@@ -47,6 +48,7 @@ def profile_path(style_id: str) -> Path:
 
 
 def save(profile: dict) -> None:
+    profile['updated_at_s'] = time.time()
     path = profile_path(profile['id'])
     temp = path.with_suffix('.tmp')
     temp.write_text(json.dumps(profile, ensure_ascii=False), encoding='utf-8')
@@ -74,7 +76,7 @@ def measure(video: Path) -> dict:
         cuts_per_minute=round(len(cuts)*60/info.duration_s, 2))
 
 
-async def visual_notes(video: Path, duration: float, work: Path, settings: Settings) -> dict:
+async def visual_notes(video: Path, duration: float, work: Path, settings: Settings, progress=None) -> dict:
     """Three sampled frames only. Uses a separately installed local vision model."""
     notes = []
     url = (settings.provider('ollama').base_url or 'http://localhost:11434').rstrip('/')
@@ -94,6 +96,8 @@ async def visual_notes(video: Path, duration: float, work: Path, settings: Setti
             response.raise_for_status()
             value = extract_json_object(response.json().get('response', ''))
             notes.append({'time_s': round(duration*fraction, 2), 'observation': value})
+            if progress:
+                progress(index+1, 3)
     return {'model': 'qwen2.5vl:3b', 'sampled_frames': notes,
             'limitation': 'Three still frames per clip; cannot establish motion, music or exact fonts.'}
 
@@ -163,16 +167,24 @@ async def analyse(profile: dict, settings: Settings) -> None:
             if measurements_file.exists():
                 measured = json.loads(measurements_file.read_text(encoding='utf-8'))
             else:
+                update_progress(profile, f'Reference {index+1}: measuring scene changes')
                 measured = await asyncio.to_thread(measure, video)
                 measurements_file.write_text(json.dumps(measured), encoding='utf-8')
             transcript_file = work / f'{source_id}-transcript.json'
             if transcript_file.exists():
                 transcript = Transcript.load(transcript_file)
             else:
+                update_progress(profile, f'Reference {index+1}: preparing audio')
                 audio = work / 'audio.wav'
                 await asyncio.to_thread(prepare.extract_audio, video, audio, duration_s=measured['duration_s'])
+                update_progress(profile, f'Reference {index+1}: loading speech model and transcribing')
+                last_progress = [0.0]
+                def speech_progress(fraction):
+                    if time.monotonic()-last_progress[0] >= 1 or fraction >= 1:
+                        last_progress[0] = time.monotonic()
+                        update_progress(profile, f'Reference {index+1}: transcribing {fraction*100:.0f}% of audio')
                 transcript = await asyncio.to_thread(transcribe.transcribe, audio, settings.whisper.model_copy(update={'diarization': False}),
-                                                   duration_s=measured['duration_s'])
+                                                   duration_s=measured['duration_s'], on_progress=speech_progress)
                 transcript.save(transcript_file)
             if not transcript.words:
                 raise ValueError('No speech found in reference. Choose a spoken podcast clip.')
@@ -186,7 +198,9 @@ async def analyse(profile: dict, settings: Settings) -> None:
                 else:
                     visual_work = work / source_id
                     visual_work.mkdir(exist_ok=True)
-                    visual = await visual_notes(video, measured['duration_s'], visual_work, settings)
+                    update_progress(profile, f'Reference {index+1}: loading vision model and reading frames')
+                    visual = await visual_notes(video, measured['duration_s'], visual_work, settings,
+                        lambda done, total: update_progress(profile, f'Reference {index+1}: visual frame {done}/{total} complete'))
                     visual_file.write_text(json.dumps(visual), encoding='utf-8')
             evidence.append(dict(source_id=source_id, title=source.title, url=source.url,
                 measurements=measured, opening=' '.join(w.text for w in transcript.words[:45]),
@@ -222,12 +236,12 @@ async def analyse(profile: dict, settings: Settings) -> None:
             max_duration_s=min(1200, max(11, int(median*1.3))), ratio=ratio,
             caption_style=result.get('caption_style', 'clean_lower') if profile['use_vision'] else 'clean_lower',
             framing=result.get('framing', 'fit') if profile['use_vision'] else 'fit')
-        profile.update(status='ready', message='Review and save the preset before use.',
+        profile.update(status='ready', finished_at_s=time.time(), message='Review and save the preset before use.',
             guidance=guidance, summary=str(result.get('summary', ''))[:2000],
             recommendations=recommendations.model_dump(),
             limits='Cut detection measures image changes. Layout and captions are manual suggestions unless vision is enabled. '
                    'Vision samples still frames only. No model training, music analysis or automatic zoom/cut imitation.')
         save(profile)
     except Exception as exc:
-        profile.update(status='failed', message=str(exc))
+        profile.update(status='failed', finished_at_s=time.time(), message=str(exc))
         save(profile)
