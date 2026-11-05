@@ -80,6 +80,7 @@ def ingest_youtube(
     settings: IngestSettings | None = None,
     *,
     on_progress: Callable[[float], None] | None = None,
+    on_activity: Callable[[dict], None] | None = None,
 ) -> Source:
     """Download a YouTube video and return a validated source record.
 
@@ -94,6 +95,8 @@ def ingest_youtube(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     def hook(status: dict) -> None:
+        if on_activity:
+            on_activity(status)
         if not on_progress or status.get("status") != "downloading":
             return
         total = status.get("total_bytes") or status.get("total_bytes_estimate")
@@ -109,6 +112,8 @@ def ingest_youtube(
         "no_warnings": True,
         "noprogress": True,
         "progress_hooks": [hook],
+        "noplaylist": True,
+        "socket_timeout": 30,
         "retries": 3,
         "fragment_retries": 3,
     }

@@ -12,13 +12,17 @@ import {
 import { ErrorNote } from '../components/ErrorNote'
 
 export function Ingest() {
+  const [referenceStyles, setReferenceStyles] = useState<import('../api').ReferenceStyle[]>([])
+  useEffect(() => { api.referenceStyles().then(setReferenceStyles).catch(() => {}) }, [])
+
   const navigate = useNavigate()
   const [url, setUrl] = useState('')
+  const [transcriptFirst, setTranscriptFirst] = useState(true)
   const [busy, setBusy] = useState<'url' | 'file' | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const [providers, setProviders] = useState<ProviderStatus[]>([])
-  const [overrides, setOverrides] = useState<JobSettingsOverrides>({})
+  const [overrides, setOverrides] = useState<JobSettingsOverrides>({ max_clips: 3, min_duration_s: 45, max_duration_s: 120, diarization: false, editorial_style: 'story', quality_review: true, quality_threshold: 75, framing: 'fit', ratio: '9:16', caption_style: 'clean_lower' })
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -48,7 +52,7 @@ export function Ingest() {
   const submitUrl = (event: React.FormEvent) => {
     event.preventDefault()
     if (!url.trim()) return
-    void start('url', () => api.ingestYouTube(url.trim()))
+    void start('url', () => api.ingestYouTube(url.trim(), undefined, transcriptFirst))
   }
 
   const submitFile = (file: File) => void start('file', () => api.uploadSource(file))
@@ -91,14 +95,70 @@ export function Ingest() {
                 className="btn btn-primary shrink-0"
                 disabled={busy !== null || !url.trim()}
               >
-                {busy === 'url' ? 'Fetching…' : 'Start'}
+                {busy === 'url' ? (transcriptFirst ? 'Checking link…' : 'Fetching…') : 'Start'}
               </button>
             </div>
+            <label className="mt-5 flex items-center gap-3 text-sm text-ink-200">
+              <input type="checkbox" checked={transcriptFirst} disabled={busy !== null}
+                onChange={(e) => setTranscriptFirst(e.target.checked)} />
+              Long podcast mode — analyse captions or audio first
+            </label>
+            <p className="mt-2 text-xs text-ink-500">
+              Downloads video only for selected moments. If captions are unavailable,
+              audio transcription still takes time. Uncheck to download the full video.
+            </p>
           </form>
 
           <p className="mt-3 text-xs leading-relaxed text-ink-500">
             Only download video you own or have the rights to process.
           </p>
+
+          <label className="mt-6 block">
+            <span className="eyebrow">Reference preset</span>
+            <select className="field mt-2" disabled={busy !== null} value={overrides.reference_style_id ?? ''}
+              onChange={e => {
+                const id = e.target.value
+                const profile = referenceStyles.find(p => p.id === id)
+                setOverrides(current => ({...current, ...(profile?.recommendations ?? {}), reference_style_id: id}))
+              }}>
+              <option value="">No reference preset</option>
+              {referenceStyles.filter(p => p.status === 'ready' && p.reviewed).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <a className="mt-2 block text-xs text-sodium-500" href="/reference-styles">Analyse reference clips and save a preset →</a>
+            <p className="mt-1 text-xs text-ink-500">Choosing a preset applies its length, layout, captions and editorial preferences. You can adjust the options below.</p>
+          </label>
+          <label className="mt-6 block">
+            <span className="eyebrow">Clip format</span>
+            <select className="field mt-2 text-sm" value={overrides.editorial_style ?? 'general'} disabled={busy !== null}
+              onChange={(e) => {
+                const format = e.target.value
+                const preset = format === 'story' ? { min_duration_s: 45, max_duration_s: 120, ratio: '9:16', framing: 'fit', caption_style: 'clean_lower' }
+                  : format === 'newsroom' ? { min_duration_s: 60, max_duration_s: 180, ratio: '16:9', framing: 'fit', caption_style: 'clean_lower' }
+                  : { min_duration_s: 20, max_duration_s: 60, ratio: '9:16', framing: 'auto', caption_style: 'bold_pop' }
+                setOverrides((current) => ({ ...current, ...preset, editorial_style: format }))
+              }}>
+              <option value="story">Complete podcast story · 45–120s</option>
+              <option value="newsroom">News discussion · 60–180s · landscape</option>
+              <option value="general">Quick highlights · 20–60s</option>
+            </select>
+            <span className="mt-1 block text-xs text-ink-500">Format sets suggested length, layout and captions. Options below let you adjust them.</span>
+          </label>
+          <label className="mt-4 flex items-start gap-3 text-sm text-ink-200">
+            <input className="mt-1" type="checkbox" checked={overrides.quality_review ?? false}
+              disabled={busy !== null} onChange={(e) => setOverrides((current) => ({ ...current, quality_review: e.target.checked }))} />
+            <span>Editorial quality check
+              <span className="mt-1 block text-xs text-ink-500">Extra AI review of the opening, context and payoff. Slower and uses more memory; can return fewer clips or none.</span>
+            </span>
+          </label>
+
+          <label className="mt-6 block">
+            <span className="eyebrow">Topics to look for (optional)</span>
+            <textarea className="field mt-2 text-sm" rows={2} maxLength={500}
+              placeholder="Relationships, money, dating expectations…"
+              value={overrides.topic ?? ''} disabled={busy !== null}
+              onChange={(e) => setOverrides((current) => ({ ...current, topic: e.target.value }))} />
+            <span className="mt-1 block text-xs text-ink-500">Leave blank for general highlights. Topic selection is AI-assisted; review the results.</span>
+          </label>
 
           <AdvancedOptions
             open={advancedOpen}
@@ -242,7 +302,7 @@ function AdvancedOptions({
               ]}
             />
             <NumberField
-              label="Max clips"
+              label="Up to this many clips"
               value={overrides.max_clips}
               placeholder="10"
               min={1}
@@ -255,7 +315,7 @@ function AdvancedOptions({
                 value={overrides.min_duration_s}
                 placeholder="20"
                 min={5}
-                max={300}
+                max={1200}
                 onChange={(v) => set('min_duration_s', v)}
               />
               <NumberField
@@ -263,15 +323,34 @@ function AdvancedOptions({
                 value={overrides.max_duration_s}
                 placeholder="90"
                 min={5}
-                max={300}
+                max={1200}
                 onChange={(v) => set('max_duration_s', v)}
               />
             </div>
+            <NumberField label="Minimum editorial score" value={overrides.quality_threshold} placeholder="75"
+              min={50} max={95} onChange={(value) => set('quality_threshold', value)} />
+            <Selector label="Output shape" value={overrides.ratio ?? '9:16'}
+              onChange={(value) => set('ratio', value)} options={[
+                { value: '9:16', label: 'Vertical 9:16' }, { value: '16:9', label: 'Landscape 16:9' }, { value: '1:1', label: 'Square 1:1' },
+              ]} />
+            <Selector label="Captions" value={overrides.caption_style ?? 'clean_lower'}
+              onChange={(value) => set('caption_style', value)} options={[
+                { value: 'clean_lower', label: 'Clean lower captions' }, { value: 'bold_pop', label: 'Bold highlighted words' },
+                { value: 'boxed', label: 'Boxed captions' }, { value: 'karaoke_fill', label: 'Karaoke fill' },
+              ]} />
+            <Selector label="Framing" value={overrides.framing ?? 'auto'}
+              onChange={(value) => set('framing', value)} options={[
+                { value: 'auto', label: 'Auto — track the speaker' },
+                { value: 'centre', label: 'Centre crop — fixed framing' },
+                { value: 'fit', label: 'Full picture — blurred background' },
+                { value: 'split', label: 'Two panels — left / right stacked' },
+              ]} />
+            <p className="text-xs text-ink-500">Two panels suits side-by-side guests. Multiple-speaker labels below require optional WhisperX setup.</p>
             <label className="flex items-center gap-3 text-sm text-ink-200 sm:col-span-2">
               <input
                 type="checkbox"
                 checked={overrides.diarization ?? false}
-                onChange={(e) => set('diarization', e.target.checked || undefined)}
+                onChange={(e) => set('diarization', e.target.checked)}
                 className="size-4 accent-sodium-500"
               />
               Multiple speakers — label who is talking, and cut to them

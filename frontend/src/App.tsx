@@ -30,6 +30,7 @@ export function App() {
             <TopLink to="/" end>
               New
             </TopLink>
+            <TopLink to="/reference-styles">Reference styles</TopLink>
             <TopLink to="/settings">Settings</TopLink>
           </nav>
 

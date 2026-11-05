@@ -24,6 +24,14 @@ def _apply_overrides(settings, overrides: JobSettingsIn):
     """Layer per-job overrides on top of saved settings."""
     merged = settings.model_copy(deep=True)
 
+    for field in ("editorial_style", "quality_review", "quality_threshold"):
+        value = getattr(overrides, field)
+        if value is not None:
+            setattr(merged.clips, field, value)
+    if overrides.topic is not None:
+        merged.clips.topic = overrides.topic.strip()
+    if overrides.framing is not None:
+        merged.export.framing = overrides.framing
     if overrides.provider:
         merged.active_provider = overrides.provider
     if overrides.whisper_model:
@@ -43,6 +51,16 @@ def _apply_overrides(settings, overrides: JobSettingsIn):
     if overrides.ratio:
         merged.export.ratio = overrides.ratio
 
+    if overrides.reference_style_id:
+        from .reference_styles import get_profile
+        profile = get_profile(overrides.reference_style_id)
+        if profile['status'] != 'ready' or not profile.get('reviewed'):
+            raise HTTPException(422, 'Review and save the reference preset before using it.')
+        merged.clips.reference_guidance = profile['guidance']
+        merged.clips.reference_style_id = profile['id']
+    elif overrides.reference_style_id is not None:
+        merged.clips.reference_guidance = ''
+        merged.clips.reference_style_id = ''
     return merged
 
 
@@ -159,3 +177,15 @@ async def job_clips(job_id: str):
     from .clips import list_clips_for_job
 
     return await list_clips_for_job(job_id)
+
+
+@router.get("/{job_id}/quality-report")
+async def quality_report(job_id: str) -> dict:
+    import json
+    from .. import paths
+    if await asyncio.to_thread(store.get_job, job_id) is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    path = paths.job_work_dir(job_id) / "quality-report.json"
+    if not path.exists():
+        return {"clips": []}
+    return json.loads(await asyncio.to_thread(path.read_text, encoding="utf-8"))

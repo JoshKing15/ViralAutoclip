@@ -35,6 +35,7 @@ export interface Job {
   updated_at: string
   started_at: string | null
   finished_at: string | null
+  progress_message?: string
   source: Source | null
 }
 
@@ -67,6 +68,8 @@ export interface Clip {
   user_trimmed: boolean
   caption_style: string
   ratio: string
+  framing: string
+  media_offset_s: number
   exports: ExportRecord[]
 }
 
@@ -92,6 +95,7 @@ export interface CropSegment {
   strategy: 'track' | 'wide' | 'general'
   zoom: number
   fit: boolean
+  split?: boolean
 }
 
 /** Mirrors autoclip.pipeline.reframe.croppath.CropPath. */
@@ -165,6 +169,12 @@ export interface SystemStatus {
 }
 
 export interface JobSettingsOverrides {
+  reference_style_id?: string
+  editorial_style?: string
+  quality_review?: boolean
+  quality_threshold?: number
+  topic?: string
+  framing?: string
   provider?: string
   whisper_model?: string
   language?: string
@@ -223,16 +233,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  startReferenceDownload: (url: string) => request<ReferenceDownload>('/api/reference-downloads', {method: 'POST', body: JSON.stringify({url})}),
+  referenceDownload: (id: string) => request<ReferenceDownload>(`/api/reference-downloads/${id}`),
+
+  referenceStyles: () => request<ReferenceStyle[]>('/api/reference-styles'),
+  referenceStyle: (id: string) => request<ReferenceStyle>(`/api/reference-styles/${id}`),
+  referenceYouTube: (url: string) => request<{id: string; title: string}>('/api/reference-styles/youtube', {method: 'POST', body: JSON.stringify({url})}),
+  createReferenceStyle: (name: string, source_ids: string[], use_vision: boolean) => request<ReferenceStyle>('/api/reference-styles', {method: 'POST', body: JSON.stringify({name, source_ids, use_vision})}),
+  retryReferenceStyle: (id: string) => request<ReferenceStyle>(`/api/reference-styles/${id}/retry`, {method: 'POST'}),
+  saveReferenceStyle: (p: ReferenceStyle) => request<ReferenceStyle>(`/api/reference-styles/${p.id}`, {method: 'PUT', body: JSON.stringify({name: p.name, guidance: p.guidance, recommendations: p.recommendations})}),
+
   health: () => request<{ status: string; version: string }>('/api/health'),
   system: () => request<SystemStatus>('/api/system'),
   fetchModels: () => request<void>('/api/system/models', { method: 'POST' }),
 
   listSources: () => request<Source[]>('/api/sources'),
 
-  ingestYouTube: (url: string, cookiesFromBrowser?: string) =>
+  ingestYouTube: (url: string, cookiesFromBrowser?: string, transcriptFirst = false) =>
     request<Source>('/api/sources/youtube', {
       method: 'POST',
-      body: JSON.stringify({ url, cookies_from_browser: cookiesFromBrowser || null }),
+      body: JSON.stringify({ url, cookies_from_browser: cookiesFromBrowser || null, transcript_first: transcriptFirst }),
     }),
 
   uploadSource: (file: File) => {
@@ -295,6 +315,13 @@ export const api = {
   deleteSecret: (key: string) =>
     request<void>(`/api/settings/secrets/${key}`, { method: 'DELETE' }),
 
+  setFraming: (clipId: string, mode: string, ratio: string) =>
+    request<Clip>(`/api/clips/${clipId}/framing`, { method: 'PATCH', body: JSON.stringify({ mode, ratio }) }),
+  getPosting: (clipId: string) => request<PostingDraft>(`/api/clips/${clipId}/posting`),
+  generatePosting: (clipId: string) => request<PostingDraft>(`/api/clips/${clipId}/posting`, { method: 'POST' }),
+  savePosting: (clipId: string, draft: PostingDraft) => request<PostingDraft>(`/api/clips/${clipId}/posting`, { method: 'PUT', body: JSON.stringify(draft) }),
+  qualityReport: (jobId: string) => request<QualityReport>(`/api/jobs/${jobId}/quality-report`),
+  clipMediaUrl: (clipId: string) => `/api/clips/${clipId}/media`,
   mediaUrl: (jobId: string) => `/api/jobs/${jobId}/media`,
 }
 
@@ -328,4 +355,35 @@ export function formatBytes(bytes: number): string {
     unit += 1
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
+}
+
+export interface PostingDraft {
+  youtube_title: string
+  description: string
+  facebook_caption: string
+  hashtags: string[]
+  commentary_points: string[]
+  source_credit: string
+}
+
+export interface QualityReport {
+  clips: { clip_id?: string; title: string; status: 'approved' | 'rejected' | 'error'; score?: number; reason: string;
+    assessment?: { hook: number; context: number; payoff: number; specificity: number; opening_quote: string; payoff_quote: string } }[]
+}
+
+export interface ReferenceStyle {
+  id: string; name: string; status: 'analysing' | 'ready' | 'failed'; message: string;
+  started_at_s?: number; finished_at_s?: number; updated_at_s?: number;
+  reviewed: boolean; guidance: string; summary: string; limits?: string;
+  recommendations: JobSettingsOverrides;
+  evidence: {source_id: string; title: string; opening: string; ending: string;
+    measurements: {duration_s: number; width: number; height: number; cut_count: number; median_shot_s: number}; visual: unknown}[];
+}
+
+export interface ReferenceDownload {
+  id: string; status: 'running' | 'done' | 'failed'; message: string;
+  started_at_s: number; finished_at_s?: number; updated_at_s?: number;
+  progress: number | null; eta_s: number | null; downloaded_bytes: number;
+  total_bytes: number | null; speed_bps: number | null; stream: string;
+  source?: {id: string; title: string};
 }

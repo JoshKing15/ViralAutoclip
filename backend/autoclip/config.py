@@ -66,6 +66,12 @@ class WhisperSettings(BaseModel):
 
 
 class ClipSettings(BaseModel):
+    reference_guidance: str = Field(default="", max_length=1500)
+    reference_style_id: str = ""
+    editorial_style: Literal["general", "story", "newsroom"] = "general"
+    quality_review: bool = False
+    quality_threshold: int = Field(default=75, ge=50, le=95)
+    topic: str = Field(default="", max_length=500)
     min_duration_s: float = 20.0
     max_duration_s: float = 90.0
     max_clips: int = 10
@@ -83,6 +89,7 @@ class IngestSettings(BaseModel):
 
 
 class ExportSettings(BaseModel):
+    framing: Literal["auto", "centre", "fit", "split"] = "auto"
     ratio: Literal["9:16", "1:1", "16:9"] = "9:16"
     caption_style: str = "bold_pop"
     #: Integrated loudness target in LUFS. -14 is the de-facto platform standard.

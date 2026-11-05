@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from ..config import load as load_settings
 from ..db import store
-from ..pipeline import ingest
+from ..pipeline import ingest, long_video
 from .schemas import SourceOut, YouTubeIngestIn
 
 log = logging.getLogger(__name__)
@@ -51,7 +51,10 @@ async def ingest_youtube(payload: YouTubeIngestIn) -> SourceOut:
         )
 
     try:
-        source = await asyncio.to_thread(ingest.ingest_youtube, payload.url, settings)
+        source = await asyncio.to_thread(
+            long_video.register if payload.transcript_first else ingest.ingest_youtube,
+            payload.url, settings,
+        )
     except ingest.IngestError as exc:
         # 422 rather than 500: the request was well-formed, but the content
         # can't be fetched, and the hint tells the user what to change.

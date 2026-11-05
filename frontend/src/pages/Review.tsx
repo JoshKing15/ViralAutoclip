@@ -10,16 +10,19 @@ import {
   type CropPath,
   type Job,
   type Word,
+  type QualityReport,
 } from '../api'
 import { CaptionEditor } from '../components/CaptionEditor'
 import { ClipPlayer } from '../components/ClipPlayer'
 import { ErrorNote } from '../components/ErrorNote'
 import { TrimBar } from '../components/TrimBar'
+import { PostingEditor } from '../components/PostingEditor'
 
 const RATIOS = ['9:16', '1:1', '16:9'] as const
 
 export function Review() {
   const { jobId } = useParams()
+  const [quality, setQuality] = useState<QualityReport>({ clips: [] })
   const [job, setJob] = useState<Job | null>(null)
   const [clips, setClips] = useState<Clip[]>([])
   const [styles, setStyles] = useState<CaptionStyle[]>([])
@@ -29,10 +32,13 @@ export function Review() {
   const [wordsDirty, setWordsDirty] = useState(false)
   const [savingWords, setSavingWords] = useState(false)
   const [exporting, setExporting] = useState<Set<string>>(new Set())
+  const [draftVersion, setDraftVersion] = useState(0)
+  const [framingBusy, setFramingBusy] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
     if (!jobId) return
+    api.qualityReport(jobId).then(setQuality).catch(() => undefined)
     void Promise.all([api.getJob(jobId), api.listClips(jobId), api.captionStyles()])
       .then(([loadedJob, loadedClips, loadedStyles]) => {
         setJob(loadedJob)
@@ -80,6 +86,8 @@ export function Review() {
     try {
       patchClip(await api.patchClip(selected.id, { start_s: start, end_s: end }))
       setWords(await api.getClipWords(selected.id))
+      setCropPath(null)
+      setDraftVersion((value) => value + 1)
     } catch (err) {
       setError(err as Error)
     }
@@ -91,6 +99,7 @@ export function Review() {
     try {
       patchClip(await api.patchCaptions(selected.id, { words }))
       setWordsDirty(false)
+      setDraftVersion((value) => value + 1)
     } catch (err) {
       setError(err as Error)
     } finally {
@@ -107,11 +116,23 @@ export function Review() {
   }
 
   const setRatio = async (clip: Clip, ratio: string) => {
+    setFramingBusy(true)
     try {
-      patchClip(await api.patchCaptions(clip.id, { ratio }))
+      patchClip(await api.setFraming(clip.id, clip.framing || 'auto', ratio))
+      setCropPath(await api.getCropPath(clip.id))
     } catch (err) {
       setError(err as Error)
-    }
+    } finally { setFramingBusy(false) }
+  }
+
+  const setFraming = async (mode: string) => {
+    if (!selected) return
+    setFramingBusy(true)
+    try {
+      patchClip(await api.setFraming(selected.id, mode, selected.ratio))
+      setCropPath(await api.getCropPath(selected.id))
+    } catch (err) { setError(err as Error) }
+    finally { setFramingBusy(false) }
   }
 
   const exportClip = async (clip: Clip) => {
@@ -137,6 +158,7 @@ export function Review() {
   }
 
   const keptCount = clips.filter((clip) => clip.status === 'kept').length
+  const assessment = quality.clips.find((item) => item.clip_id === selected?.id)?.assessment
   const activeStyle = styles.find((style) => style.key === selected?.caption_style)
 
   if (error && clips.length === 0) {
@@ -165,7 +187,7 @@ export function Review() {
           <span className="numeric text-xs text-ink-500">
             {clips.length} clips · {keptCount} kept
           </span>
-          <button onClick={exportKept} disabled={keptCount === 0} className="btn btn-primary">
+          <button onClick={exportKept} disabled={keptCount === 0 || framingBusy} className="btn btn-primary">
             Export kept
           </button>
         </div>
@@ -177,6 +199,11 @@ export function Review() {
         </div>
       )}
 
+      {quality.clips.some((item) => item.status !== 'approved') && <details className="mt-5 text-xs text-ink-400">
+        <summary className="cursor-pointer">Editorial review: rejected candidates</summary>
+        <ul className="mt-3 space-y-2">{quality.clips.filter((item) => item.status !== 'approved').map((item, i) =>
+          <li key={i}><strong>{item.title}</strong>: {item.reason}</li>)}</ul>
+      </details>}
       {clips.length === 0 ? (
         <EmptyState />
       ) : (
@@ -191,7 +218,7 @@ export function Review() {
                     clip={clip}
                     index={index}
                     selected={clip.id === selectedId}
-                    onSelect={() => setSelectedId(clip.id)}
+                    onSelect={() => { if (!framingBusy) setSelectedId(clip.id) }}
                     onKeep={() =>
                       setStatus(clip, clip.status === 'kept' ? 'candidate' : 'kept')
                     }
@@ -209,10 +236,10 @@ export function Review() {
             {selected && jobId && (
               <>
                 <ClipPlayer
-                  src={api.mediaUrl(jobId)}
-                  startS={selected.start_s}
-                  endS={selected.end_s}
-                  words={words}
+                  src={api.clipMediaUrl(selected.id)}
+                  startS={selected.start_s - (selected.media_offset_s || 0)}
+                  endS={selected.end_s - (selected.media_offset_s || 0)}
+                  words={words.map((w) => ({ ...w, start: w.start - (selected.media_offset_s || 0), end: w.end - (selected.media_offset_s || 0) }))}
                   style={activeStyle}
                   ratio={selected.ratio}
                   cropPath={cropPath}
@@ -238,6 +265,11 @@ export function Review() {
                   <p className="mt-2 max-w-prose text-[0.9375rem] leading-relaxed text-ink-300">
                     {selected.reason || 'No rationale returned for this clip.'}
                   </p>
+                  {assessment && <div className="mt-3 space-y-2 text-xs text-ink-400">
+                    <p>Editorial review · Hook {assessment.hook}/5 · Context {assessment.context}/5 · Payoff {assessment.payoff}/5</p>
+                    <p>Ending evidence: “{assessment.payoff_quote}”</p>
+                    <p>AI judgement, not a prediction of views. Check the original context.</p>
+                  </div>}
                   {selected.hook && (
                     <p className="mt-3 border-l-2 border-ink-700 pl-3 font-display text-lg italic text-ink-200">
                       “{selected.hook}”
@@ -285,6 +317,7 @@ export function Review() {
                     {RATIOS.map((ratio) => (
                       <button
                         key={ratio}
+                        disabled={framingBusy}
                         onClick={() => setRatio(selected, ratio)}
                         className={[
                           'numeric btn',
@@ -297,10 +330,24 @@ export function Review() {
                   </div>
                 </div>
 
+                <div>
+                  <label className="eyebrow" htmlFor="framing">Framing</label>
+                  <select id="framing" className="field mt-2 text-sm" value={selected.framing || 'auto'}
+                    disabled={framingBusy || exporting.size > 0} onChange={(e) => void setFraming(e.target.value)}>
+                    <option value="auto">Auto — track the speaker</option>
+                    <option value="centre">Centre crop</option>
+                    <option value="fit">Full picture with blurred background</option>
+                    <option value="split">Two panels: left above right</option>
+                  </select>
+                  <p className="mt-2 text-xs text-ink-500">{framingBusy ? 'Updating preview framing…' : 'Two panels uses the left and right halves of the picture. Check guest positions before exporting.'}</p>
+                </div>
+
+                <PostingEditor key={`${selected.id}:${draftVersion}`} clipId={selected.id} />
+
                 <div className="border-t border-ink-800 pt-6">
                   <button
                     onClick={() => exportClip(selected)}
-                    disabled={exporting.has(selected.id)}
+                    disabled={exporting.has(selected.id) || framingBusy}
                     className="btn btn-primary w-full"
                   >
                     {exporting.has(selected.id) ? 'Rendering…' : 'Export this clip'}
